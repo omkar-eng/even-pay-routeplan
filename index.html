@@ -4,6 +4,11 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>Even — Sales Operations Platform</title>
+<!-- Firebase SDK -->
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+<!-- React + Babel -->
 <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
 <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -11,16 +16,82 @@
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#F5F7FF;-webkit-font-smoothing:antialiased}
 input,button,select{font-family:inherit}
-::-webkit-scrollbar{width:4px;height:4px}
-::-webkit-scrollbar-track{background:transparent}
-::-webkit-scrollbar-thumb{background:#c9d0e0;border-radius:4px}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+.fade-in{animation:fadeIn .3s ease}
 </style>
 </head>
 <body>
 <div id="root"></div>
 <script type="text/babel">
-const{useState}=React;
+const{useState,useEffect}=React;
 
+// ── FIREBASE ───────────────────────────────────────────────────────────────
+const firebaseConfig={
+  apiKey:"AIzaSyC8X_cbg86lpcV4juEvP4gNgKQpmzitb7A",
+  authDomain:"evenpay-routeplan.firebaseapp.com",
+  projectId:"evenpay-routeplan",
+  storageBucket:"evenpay-routeplan.firebasestorage.app",
+  messagingSenderId:"182072759289",
+  appId:"1:182072759289:web:332d12b86dbecaadb82328"
+};
+firebase.initializeApp(firebaseConfig);
+const auth=firebase.auth();
+const db=firebase.firestore();
+
+// Known roles — add more emails here as your team grows
+const ROLE_MAP={
+  'omkar@even.in':{role:'admin',name:'Admin (Omkar)',city:'Pune'},
+};
+
+// ── FIRESTORE DATA LAYER ───────────────────────────────────────────────────
+let _cache={targets:{},tl_targets:{},admin_state:null,tl_notes:{},loaded:false};
+
+async function initFirestore(){
+  try{
+    const[tSnap,cSnap]=await Promise.all([
+      db.collection('targets').get(),
+      db.collection('config').get()
+    ]);
+    tSnap.forEach(d=>{_cache.targets[d.id]=d.data();});
+    cSnap.forEach(d=>{
+      if(d.id==='tl_targets')_cache.tl_targets=d.data()||{};
+      if(d.id==='admin_state')_cache.admin_state=d.data()||null;
+      if(d.id==='tl_notes')_cache.tl_notes=d.data()||{};
+    });
+  }catch(e){console.warn('Firestore load error:',e);}
+  _cache.loaded=true;
+}
+
+const safeKey=k=>k.replace(/[^a-zA-Z0-9_-]/g,'_');
+
+function loadStore(){return _cache.targets||{};}
+function saveStore(s){
+  _cache.targets=s;
+  Object.entries(s).forEach(([k,v])=>{
+    db.collection('targets').doc(safeKey(k)).set(v).catch(console.warn);
+  });
+  return true;
+}
+function loadTLTargets(){return _cache.tl_targets||{};}
+function saveTLTargetsStore(s){
+  _cache.tl_targets=s;
+  db.collection('config').doc('tl_targets').set(s).catch(console.warn);
+  return true;
+}
+function loadTLNotes(){return _cache.tl_notes||{};}
+function saveTLNotes(s){
+  _cache.tl_notes=s;
+  db.collection('config').doc('tl_notes').set(s).catch(console.warn);
+}
+function loadAdminState(){return _cache.admin_state;}
+function saveAdminState(s){
+  _cache.admin_state=s;
+  db.collection('config').doc('admin_state').set(s).catch(console.warn);
+  return true;
+}
+
+// ── BRAND ──────────────────────────────────────────────────────────────────
 const B={
   brand:'#2350FF',brandDark:'#1538CC',brandLight:'#EEF1FF',brandMid:'#3D63FF',
   green:'#16A34A',greenBg:'#DCFCE7',red:'#DC2626',redBg:'#FEE2E2',
@@ -37,6 +108,7 @@ const EvenLogo=({size=32,color='#fff'})=>(
   </svg>
 );
 
+// ── DATA ───────────────────────────────────────────────────────────────────
 const ZONE={
   target:2850000,achieved:2089000,refund:45000,
   leads:{target:4500,achieved:3420},renewal:{target:200,achieved:148},
@@ -78,7 +150,6 @@ const ALL_RMS=[
     {name:'Dr Dudhbhate Netralay',locality:'Sinhgad Rd',leads:126,status:'Declining',freq:'Daily',slot:'11:00–12:00'},
     {name:'Dr Sushrut Kajale',locality:'Bharti Vidyapeeth',leads:94,status:'Growing',freq:'Daily',slot:'1:00–2:00'},
     {name:'Dr Somesh Kawade',locality:'Narhe',leads:177,status:'Stable',freq:'Tri-weekly',slot:'3:00–5:00'},
-    {name:'Astha Children Clinic',locality:'Katraj',leads:61,status:'Growing',freq:'Tri-weekly',slot:'3:00–5:00'},
   ]},
   {rm:'Janak Jumde',tl:'Akshay',city:'Pune',target:90000,achieved:49000,leads:165,clinics:[
     {name:'New Life Child Care',locality:'Kalewadi',leads:77,status:'Declining',freq:'Daily',slot:'11:00–12:30'},
@@ -90,7 +161,6 @@ const ALL_RMS=[
   {rm:'Sumit Lal',tl:'Naveen',city:'Mumbai',target:85000,achieved:71000,leads:155,clinics:[
     {name:'Aastha Eye Clinic',locality:'Mira Road',leads:134,status:'Declining',freq:'Daily',slot:'11:00–12:30'},
     {name:"Vibgyor Children's",locality:'Mira Road',leads:9,status:'Growing',freq:'Tri-weekly',slot:'3:30–4:30'},
-    {name:'Doctor Tooth Junior',locality:'Mira Road',leads:8,status:'Growing',freq:'Tri-weekly',slot:'12:30–1:30'},
   ]},
   {rm:'Rishabh Patel',tl:'Seema',city:'Mumbai',target:80000,achieved:75000,leads:148,clinics:[
     {name:'Mauli Clinic',locality:'Thane',leads:148,status:'Stable',freq:'Tri-weekly',slot:'11:30–1:30'},
@@ -107,13 +177,7 @@ const ALL_RMS=[
   ]},
 ];
 
-const DEMO={
-  'rm@even.in':{role:'rm',name:'Ayush Kamble',tl:'Akshay'},
-  'tl@even.in':{role:'tl',name:'Akshay',city:'Pune'},
-  'zonal@even.in':{role:'zonal',name:'Zonal Head'},
-  'admin@even.in':{role:'admin',name:'Admin (You)'},
-};
-
+// ── HELPERS ────────────────────────────────────────────────────────────────
 const fmt=v=>'₹'+(v>=100000?(v/100000).toFixed(1)+'L':(v/1000).toFixed(0)+'K');
 const pct=(a,t)=>t>0?Math.round(a/t*100):0;
 const pClr=p=>p>=90?B.green:p>=60?B.amber:B.red;
@@ -121,68 +185,131 @@ const pBg=p=>p>=90?B.greenBg:p>=60?B.amberBg:B.redBg;
 const medal=i=>i===0?'🥇':i===1?'🥈':i===2?'🥉':null;
 const mClr=i=>i===0?B.gold:i===1?B.silver:i===2?B.bronze:B.muted;
 
+// ── SHARED UI ──────────────────────────────────────────────────────────────
 const Card=({children,style})=><div style={{background:B.white,borderRadius:16,padding:'14px 16px',boxShadow:'0 1px 4px rgba(35,80,255,.08)',border:`1px solid ${B.line}`,...style}}>{children}</div>;
 const STitle=({children,mt})=><div style={{fontSize:12,fontWeight:700,color:B.muted,textTransform:'uppercase',letterSpacing:'.6px',marginBottom:10,marginTop:mt||0}}>{children}</div>;
 const Bar=({p,h=6})=><div style={{background:B.line,borderRadius:4,height:h,overflow:'hidden',flex:1}}><div style={{width:`${Math.min(p,100)}%`,height:'100%',background:pClr(p),borderRadius:4,transition:'width .5s'}}/></div>;
 const PBadge=({p})=><span style={{background:pBg(p),color:pClr(p),padding:'3px 9px',borderRadius:20,fontSize:12,fontWeight:800}}>{p}%</span>;
 const SBadge=({status})=>{const m={Growing:{bg:B.greenBg,c:B.green,i:'↑'},Stable:{bg:B.blueBg,c:B.blue2,i:'→'},Declining:{bg:B.redBg,c:B.red,i:'↓'}}[status]||{bg:'#f1f5f9',c:B.muted,i:'—'};return <span style={{background:m.bg,color:m.c,padding:'2px 8px',borderRadius:20,fontSize:10,fontWeight:700}}>{m.i} {status}</span>;};
 const KTile=({label,value,sub,pv})=><div style={{background:'rgba(255,255,255,.18)',borderRadius:12,padding:'10px 12px',flex:1,minWidth:0}}><div style={{fontSize:20,fontWeight:800,color:'#fff',lineHeight:1}}>{value}</div>{pv!==undefined&&<div style={{fontSize:11,color:'rgba(255,255,255,.9)',fontWeight:700,marginTop:1}}>{pv}%</div>}<div style={{fontSize:10,color:'rgba(255,255,255,.7)',marginTop:4,textTransform:'uppercase',letterSpacing:'.4px'}}>{label}</div>{sub&&<div style={{fontSize:10,color:'rgba(255,255,255,.55)',marginTop:1}}>{sub}</div>}</div>;
-
 const FULL_NAV=[['zone','📊','Zone'],['board','🏆','Leaders'],['route','🗺️','Routes'],['teams','👥','Teams'],['admin','⚙️','Admin']];
 function FullNav({screen,setScreen}){
-  return(
-    <div style={{position:'fixed',bottom:0,left:'50%',transform:'translateX(-50%)',width:'100%',maxWidth:600,background:B.white,borderTop:`1px solid ${B.line}`,display:'flex',zIndex:100,boxShadow:'0 -4px 20px rgba(35,80,255,.1)'}}>
-      {FULL_NAV.map(([id,icon,lbl])=>(
-        <button key={id} onClick={()=>setScreen(id)} style={{flex:1,padding:'8px 4px 10px',background:'none',border:'none',display:'flex',flexDirection:'column',alignItems:'center',gap:2,cursor:'pointer'}}>
-          <span style={{fontSize:20}}>{icon}</span>
-          <span style={{fontSize:10,fontWeight:screen===id?700:500,color:screen===id?B.brand:B.muted}}>{lbl}</span>
-          {screen===id&&<div style={{width:18,height:3,background:B.brand,borderRadius:2}}/>}
-        </button>
-      ))}
-    </div>
-  );
+  return <div style={{position:'fixed',bottom:0,left:'50%',transform:'translateX(-50%)',width:'100%',maxWidth:600,background:B.white,borderTop:`1px solid ${B.line}`,display:'flex',zIndex:100,boxShadow:'0 -4px 20px rgba(35,80,255,.1)'}}>
+    {FULL_NAV.map(([id,icon,lbl])=>(
+      <button key={id} onClick={()=>setScreen(id)} style={{flex:1,padding:'8px 4px 10px',background:'none',border:'none',display:'flex',flexDirection:'column',alignItems:'center',gap:2,cursor:'pointer'}}>
+        <span style={{fontSize:20}}>{icon}</span>
+        <span style={{fontSize:10,fontWeight:screen===id?700:500,color:screen===id?B.brand:B.muted}}>{lbl}</span>
+        {screen===id&&<div style={{width:18,height:3,background:B.brand,borderRadius:2}}/>}
+      </button>
+    ))}
+  </div>;
 }
 
+// ── LOADING SCREEN ─────────────────────────────────────────────────────────
+function LoadingScreen({message='Loading…'}){
+  return <div style={{minHeight:'100vh',background:`linear-gradient(160deg,${B.brandDark},${B.brand})`,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:16}}>
+    <EvenLogo size={48}/>
+    <span style={{color:'#fff',fontSize:20,fontWeight:800,letterSpacing:-.5}}>even</span>
+    <div style={{width:40,height:40,border:'4px solid rgba(255,255,255,.3)',borderTopColor:'#fff',borderRadius:'50%',animation:'spin .8s linear infinite'}}/>
+    <span style={{color:'rgba(255,255,255,.7)',fontSize:13}}>{message}</span>
+  </div>;
+}
+
+// ── LOGIN ──────────────────────────────────────────────────────────────────
 function Login({onLogin}){
-  const[em,setEm]=useState('');const[pw,setPw]=useState('');
-  const[busy,setBusy]=useState(false);const[err,setErr]=useState('');
-  const go=()=>{setBusy(true);setErr('');setTimeout(()=>{const u=DEMO[em.toLowerCase()];u?onLogin(u):(setBusy(false),setErr('Use a demo email below'));},700);};
+  const[em,setEm]=useState('');
+  const[pw,setPw]=useState('');
+  const[busy,setBusy]=useState(false);
+  const[err,setErr]=useState('');
+  const[showPw,setShowPw]=useState(false);
+
+  const go=async()=>{
+    if(!em.trim()||!pw){setErr('Enter your email and password');return;}
+    setBusy(true);setErr('');
+    try{
+      const cred=await auth.signInWithEmailAndPassword(em.trim(),pw);
+      let userData;
+      const userDoc=await db.collection('users').doc(cred.user.uid).get();
+      if(userDoc.exists){
+        userData=userDoc.data();
+      } else {
+        const mapped=ROLE_MAP[em.trim().toLowerCase()];
+        userData=mapped||{role:'rm',name:em.split('@')[0]};
+        await db.collection('users').doc(cred.user.uid).set({
+          email:em.trim().toLowerCase(),
+          ...userData,
+          createdAt:new Date().toISOString()
+        });
+      }
+      onLogin({...userData,uid:cred.user.uid,email:em.trim().toLowerCase()});
+    }catch(e){
+      setBusy(false);
+      const msgs={
+        'auth/wrong-password':'Wrong password. Try again.',
+        'auth/user-not-found':'No account found with this email.',
+        'auth/invalid-email':'Please enter a valid email.',
+        'auth/invalid-credential':'Wrong email or password.',
+        'auth/too-many-requests':'Too many attempts. Wait a moment and try again.',
+        'auth/network-request-failed':'Network error. Check your connection.',
+      };
+      setErr(msgs[e.code]||'Login failed. Please try again.');
+    }
+  };
+
   return(
     <div style={{minHeight:'100vh',background:`linear-gradient(160deg,${B.brandDark} 0%,${B.brand} 60%,${B.brandMid} 100%)`,display:'flex',alignItems:'center',justifyContent:'center',padding:20}}>
-      <div style={{width:'100%',maxWidth:360}}>
+      <div style={{width:'100%',maxWidth:360}} className="fade-in">
         <div style={{textAlign:'center',marginBottom:32}}>
           <div style={{display:'inline-flex',alignItems:'center',gap:12,background:'rgba(255,255,255,.12)',padding:'12px 24px',borderRadius:20}}>
             <EvenLogo size={38}/><span style={{fontSize:26,fontWeight:800,color:'#fff',letterSpacing:-.5}}>even</span>
           </div>
           <div style={{color:'rgba(255,255,255,.6)',fontSize:13,marginTop:10}}>Sales Operations Platform</div>
         </div>
+
         <div style={{background:B.white,borderRadius:20,padding:28,boxShadow:'0 20px 60px rgba(35,80,255,.25)'}}>
-          <div style={{fontSize:18,fontWeight:700,color:B.ink,marginBottom:20}}>Welcome back 👋</div>
-          {[['Email','text',em,setEm,'you@even.in'],['Password','password',pw,setPw,'••••••••']].map(([l,t,v,s,p])=>(
-            <div key={l} style={{marginBottom:14}}>
+          <div style={{fontSize:18,fontWeight:700,color:B.ink,marginBottom:6}}>Sign in</div>
+          <div style={{fontSize:13,color:B.muted,marginBottom:22}}>Use your work email and password</div>
+
+          {[['Email','email',em,setEm,'you@even.in'],['Password',showPw?'text':'password',pw,setPw,'••••••••']].map(([l,t,v,s,p],i)=>(
+            <div key={l} style={{marginBottom:14,position:'relative'}}>
               <div style={{fontSize:11,fontWeight:600,color:B.muted,marginBottom:5,textTransform:'uppercase',letterSpacing:'.5px'}}>{l}</div>
-              <input value={v} onChange={e=>s(e.target.value)} type={t} placeholder={p} onKeyDown={e=>e.key==='Enter'&&go()}
-                style={{width:'100%',padding:'12px 14px',border:`1.5px solid ${B.line}`,borderRadius:12,fontSize:14,outline:'none',boxSizing:'border-box'}}/>
+              <input value={v} onChange={e=>s(e.target.value)} type={t} placeholder={p}
+                onKeyDown={e=>e.key==='Enter'&&go()}
+                style={{width:'100%',padding:'12px 14px',border:`1.5px solid ${B.line}`,borderRadius:12,fontSize:14,outline:'none',boxSizing:'border-box'}}
+                onFocus={e=>e.target.style.borderColor=B.brand}
+                onBlur={e=>e.target.style.borderColor=B.line}/>
+              {i===1&&<button onClick={()=>setShowPw(!showPw)} style={{position:'absolute',right:12,bottom:12,background:'none',border:'none',cursor:'pointer',color:B.muted,fontSize:12,fontWeight:600}}>
+                {showPw?'Hide':'Show'}
+              </button>}
             </div>
           ))}
-          {err&&<div style={{color:B.red,fontSize:12,fontWeight:600,marginBottom:10,background:B.redBg,padding:'8px 12px',borderRadius:8}}>{err}</div>}
-          <button onClick={go} disabled={busy} style={{width:'100%',padding:14,background:busy?B.muted:B.brand,color:'#fff',border:'none',borderRadius:12,fontSize:15,fontWeight:700,cursor:'pointer'}}>
-            {busy?'Signing in…':'Sign In →'}
+
+          {err&&<div style={{color:B.red,fontSize:12,fontWeight:600,marginBottom:12,background:B.redBg,padding:'10px 12px',borderRadius:10,display:'flex',alignItems:'center',gap:6}}>
+            ⚠️ {err}
+          </div>}
+
+          <button onClick={go} disabled={busy}
+            style={{width:'100%',padding:14,background:busy?B.muted:B.brand,color:'#fff',border:'none',borderRadius:12,fontSize:15,fontWeight:700,cursor:busy?'not-allowed':'pointer',transition:'background .2s'}}>
+            {busy?<span style={{display:'flex',alignItems:'center',justifyContent:'center',gap:8}}>
+              <span style={{width:16,height:16,border:'2px solid rgba(255,255,255,.4)',borderTopColor:'#fff',borderRadius:'50%',display:'inline-block',animation:'spin .6s linear infinite'}}/>
+              Signing in…
+            </span>:'Sign In →'}
           </button>
+
+          <div style={{marginTop:16,textAlign:'center',fontSize:12,color:B.muted}}>
+            Forgot your password? Contact your admin.
+          </div>
         </div>
-        <div style={{marginTop:14,background:'rgba(255,255,255,.1)',borderRadius:14,padding:'14px 16px'}}>
-          <div style={{color:'rgba(255,255,255,.85)',fontSize:11,fontWeight:700,marginBottom:8}}>🎯 Demo accounts (any password)</div>
-          {[['rm@even.in','RM view'],['tl@even.in','TL view'],['zonal@even.in','Zonal Head — full access'],['admin@even.in','Admin — full access']].map(([e,d])=>(
-            <div key={e} onClick={()=>setEm(e)} style={{color:'rgba(255,255,255,.65)',fontSize:11,marginTop:5,cursor:'pointer',display:'flex',gap:8}}>
-              <span style={{background:'rgba(255,255,255,.15)',borderRadius:4,padding:'1px 6px',fontSize:10}}>{e}</span><span>{d}</span>
-            </div>
-          ))}
+
+        <div style={{marginTop:14,background:'rgba(255,255,255,.08)',borderRadius:12,padding:'12px 16px',textAlign:'center'}}>
+          <div style={{color:'rgba(255,255,255,.5)',fontSize:11}}>🔒 Secured with Firebase Authentication</div>
         </div>
       </div>
     </div>
   );
 }
 
+// ── RM VIEW ────────────────────────────────────────────────────────────────
 function RMView({user}){
   const rm=ALL_RMS.find(r=>r.rm===user.name)||ALL_RMS[0];
   return(
@@ -229,14 +356,8 @@ function RMView({user}){
         <STitle mt={18}>🏥 All My Clinics</STitle>
         {rm.clinics.map((c,i)=>(
           <Card key={i} style={{marginBottom:8,display:'flex',alignItems:'center',gap:12}}>
-            <div style={{flex:1}}>
-              <div style={{fontWeight:600,fontSize:13}}>{c.name}</div>
-              <div style={{color:B.muted,fontSize:11,marginTop:1}}>{c.locality} · {c.freq}</div>
-            </div>
-            <div style={{textAlign:'right',flexShrink:0}}>
-              <div style={{fontWeight:800,fontSize:20,color:B.brand}}>{c.leads}</div>
-              <SBadge status={c.status}/>
-            </div>
+            <div style={{flex:1}}><div style={{fontWeight:600,fontSize:13}}>{c.name}</div><div style={{color:B.muted,fontSize:11,marginTop:1}}>{c.locality} · {c.freq}</div></div>
+            <div style={{textAlign:'right',flexShrink:0}}><div style={{fontWeight:800,fontSize:20,color:B.brand}}>{c.leads}</div><SBadge status={c.status}/></div>
           </Card>
         ))}
       </div>
@@ -244,6 +365,7 @@ function RMView({user}){
   );
 }
 
+// ── TL VIEW ────────────────────────────────────────────────────────────────
 function TLTeamPanel({user}){
   const myRMs=ALL_RMS.filter(r=>r.tl===user.name);
   const tgt=myRMs.reduce((s,r)=>s+r.target,0);
@@ -254,7 +376,7 @@ function TLTeamPanel({user}){
       <div style={{background:`linear-gradient(135deg,${B.brandDark},${B.brand})`,padding:'22px 18px 30px',borderRadius:'0 0 28px 28px'}}>
         <div style={{color:'rgba(255,255,255,.65)',fontSize:12}}>Team Dashboard</div>
         <div style={{color:'#fff',fontSize:21,fontWeight:800,marginTop:2}}>{user.name}'s Team</div>
-        <div style={{color:'rgba(255,255,255,.55)',fontSize:11,marginTop:2}}>{user.city} · {myRMs.length} RMs</div>
+        <div style={{color:'rgba(255,255,255,.55)',fontSize:11,marginTop:2}}>{user.city||'Pune'} · {myRMs.length} RMs</div>
         <div style={{display:'flex',gap:8,marginTop:14}}>
           <KTile label="Target" value={fmt(tgt)}/>
           <KTile label="Achieved" value={fmt(ach)} pv={pct(ach,tgt)}/>
@@ -280,8 +402,7 @@ function TLTeamPanel({user}){
               </div>
               {[['Revenue',p],['Leads',pct(r.leads,200)]].map(([l,v])=>(
                 <div key={l} style={{display:'flex',alignItems:'center',gap:8,marginBottom:5}}>
-                  <div style={{fontSize:10,color:B.muted,width:52,flexShrink:0}}>{l}</div>
-                  <Bar p={v}/>
+                  <div style={{fontSize:10,color:B.muted,width:52,flexShrink:0}}>{l}</div><Bar p={v}/>
                 </div>
               ))}
             </Card>
@@ -291,38 +412,32 @@ function TLTeamPanel({user}){
     </div>
   );
 }
-
 function TLNav({screen,setScreen}){
-  return(
-    <div style={{position:'fixed',bottom:0,left:'50%',transform:'translateX(-50%)',width:'100%',maxWidth:600,background:B.white,borderTop:`1px solid ${B.line}`,display:'flex',zIndex:100,boxShadow:'0 -4px 20px rgba(35,80,255,.1)'}}>
-      {[['team','👥','My Team'],['route','🗺️','Route Plan'],['board','🏆','Leaderboard']].map(([id,icon,lbl])=>(
-        <button key={id} onClick={()=>setScreen(id)} style={{flex:1,padding:'10px 8px 12px',background:'none',border:'none',display:'flex',flexDirection:'column',alignItems:'center',gap:3,cursor:'pointer'}}>
-          <span style={{fontSize:22}}>{icon}</span>
-          <span style={{fontSize:11,fontWeight:screen===id?700:500,color:screen===id?B.brand:B.muted}}>{lbl}</span>
-          {screen===id&&<div style={{width:20,height:3,background:B.brand,borderRadius:2}}/>}
-        </button>
-      ))}
-    </div>
-  );
+  return <div style={{position:'fixed',bottom:0,left:'50%',transform:'translateX(-50%)',width:'100%',maxWidth:600,background:B.white,borderTop:`1px solid ${B.line}`,display:'flex',zIndex:100,boxShadow:'0 -4px 20px rgba(35,80,255,.1)'}}>
+    {[['team','👥','My Team'],['route','🗺️','Route Plan'],['board','🏆','Leaderboard']].map(([id,icon,lbl])=>(
+      <button key={id} onClick={()=>setScreen(id)} style={{flex:1,padding:'10px 8px 12px',background:'none',border:'none',display:'flex',flexDirection:'column',alignItems:'center',gap:3,cursor:'pointer'}}>
+        <span style={{fontSize:22}}>{icon}</span>
+        <span style={{fontSize:11,fontWeight:screen===id?700:500,color:screen===id?B.brand:B.muted}}>{lbl}</span>
+        {screen===id&&<div style={{width:20,height:3,background:B.brand,borderRadius:2}}/>}
+      </button>
+    ))}
+  </div>;
 }
-
 function TLView({user}){
   const[screen,setScreen]=useState('team');
-  return(
-    <>
-      {screen==='team'&&<TLTeamPanel user={user}/>}
-      {screen==='route'&&<RoutePlanPanel/>}
-      {screen==='board'&&<LeaderboardPanel/>}
-      <TLNav screen={screen} setScreen={setScreen}/>
-    </>
-  );
+  return <>
+    {screen==='team'&&<TLTeamPanel user={user}/>}
+    {screen==='route'&&<RoutePlanPanel/>}
+    {screen==='board'&&<LeaderboardPanel/>}
+    <TLNav screen={screen} setScreen={setScreen}/>
+  </>;
 }
 
+// ── ROUTE PLAN ─────────────────────────────────────────────────────────────
 function RoutePlanPanel(){
   const[cityF,setCityF]=useState('All');
   const[tlF,setTlF]=useState('All');
   const[search,setSearch]=useState('');
-  const cities=['All','Pune','Mumbai','Nagpur'];
   const tls=['All',...new Set(ALL_RMS.map(r=>r.tl))];
   const filtered=ALL_RMS.filter(r=>{
     if(cityF!=='All'&&r.city!==cityF)return false;
@@ -340,7 +455,7 @@ function RoutePlanPanel(){
       <div style={{background:B.white,borderBottom:`1px solid ${B.line}`,padding:'12px 16px',display:'flex',gap:8,flexWrap:'wrap'}}>
         <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="🔍 Search RM or clinic..."
           style={{flex:1,minWidth:140,padding:'8px 12px',border:`1.5px solid ${B.line}`,borderRadius:10,fontSize:13,outline:'none'}}/>
-        {[['City',cities,cityF,setCityF],['TL',tls,tlF,setTlF]].map(([l,opts,v,s])=>(
+        {[['City',['All','Pune','Mumbai','Nagpur'],cityF,setCityF],['TL',tls,tlF,setTlF]].map(([l,opts,v,s])=>(
           <select key={l} value={v} onChange={e=>s(e.target.value)}
             style={{padding:'8px 10px',border:`1.5px solid ${B.line}`,borderRadius:10,fontSize:12,fontWeight:600,background:B.white,outline:'none',cursor:'pointer'}}>
             {opts.map(o=><option key={o}>{o}</option>)}
@@ -352,10 +467,7 @@ function RoutePlanPanel(){
         {filtered.map((r,i)=>(
           <Card key={i} style={{marginBottom:14}}>
             <div style={{background:`linear-gradient(135deg,${B.brand},${B.brandMid})`,margin:'-14px -16px 12px',padding:'12px 16px',borderRadius:'16px 16px 0 0',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-              <div>
-                <div style={{color:'#fff',fontWeight:700,fontSize:14}}>{r.rm}</div>
-                <div style={{color:'rgba(255,255,255,.65)',fontSize:11,marginTop:2}}>TL: {r.tl} · {r.city}</div>
-              </div>
+              <div><div style={{color:'#fff',fontWeight:700,fontSize:14}}>{r.rm}</div><div style={{color:'rgba(255,255,255,.65)',fontSize:11,marginTop:2}}>TL: {r.tl} · {r.city}</div></div>
               <div style={{background:'rgba(255,255,255,.2)',borderRadius:10,padding:'4px 10px',textAlign:'center'}}>
                 <div style={{color:'#fff',fontWeight:800,fontSize:16}}>{r.leads}</div>
                 <div style={{color:'rgba(255,255,255,.65)',fontSize:9,textTransform:'uppercase'}}>Leads</div>
@@ -384,33 +496,28 @@ function RoutePlanPanel(){
   );
 }
 
+// ── LEADERBOARD ────────────────────────────────────────────────────────────
 function LeaderboardPanel(){
   const[tab,setTab]=useState('tls');
   const tlRanked=[...ZONE.tls].sort((a,b)=>pct(b.achieved,b.target)-pct(a.achieved,a.target));
   const rmRanked=[...ALL_RMS].sort((a,b)=>pct(b.achieved,b.target)-pct(a.achieved,a.target));
   const actual=ZONE.achieved-ZONE.refund;
   const zp=pct(actual,ZONE.target);
-  const Podium=({items,nameKey})=>(
+  const Podium=({items,nk})=>(
     <div style={{display:'flex',gap:8,marginBottom:16,alignItems:'flex-end'}}>
       {[items[1],items[0],items[2]].map((item,idx)=>{
         if(!item)return <div key={idx} style={{flex:1}}/>;
         const p=pct(item.achieved,item.target);
-        const heights=['110px','130px','95px'];
-        const ms=['🥈','🥇','🥉'];
-        const colors=[B.silver,B.gold,B.bronze];
-        return(
-          <div key={item[nameKey]||idx} style={{flex:1,textAlign:'center'}}>
-            <div style={{fontWeight:700,fontSize:11,color:B.ink,marginBottom:2,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',padding:'0 2px'}}>
-              {nameKey==='rm'?item.rm.split(' ')[0]:item.name}
-            </div>
-            <div style={{fontSize:9,color:B.muted,marginBottom:4}}>{nameKey==='rm'?`TL: ${item.tl}`:item.city}</div>
-            <div style={{background:colors[idx],borderRadius:'10px 10px 0 0',height:heights[idx],display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center'}}>
-              <div style={{fontSize:22}}>{ms[idx]}</div>
-              <div style={{color:'#fff',fontWeight:800,fontSize:14,marginTop:3}}>{p}%</div>
-              <div style={{color:'rgba(255,255,255,.8)',fontSize:10,marginTop:1}}>{fmt(item.achieved)}</div>
-            </div>
+        const ms=['🥈','🥇','🥉'];const colors=[B.silver,B.gold,B.bronze];const heights=['110px','130px','95px'];
+        return <div key={item[nk]||idx} style={{flex:1,textAlign:'center'}}>
+          <div style={{fontWeight:700,fontSize:11,color:B.ink,marginBottom:2,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',padding:'0 2px'}}>{nk==='rm'?item.rm.split(' ')[0]:item.name}</div>
+          <div style={{fontSize:9,color:B.muted,marginBottom:4}}>{nk==='rm'?`TL: ${item.tl}`:item.city}</div>
+          <div style={{background:colors[idx],borderRadius:'10px 10px 0 0',height:heights[idx],display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center'}}>
+            <div style={{fontSize:22}}>{ms[idx]}</div>
+            <div style={{color:'#fff',fontWeight:800,fontSize:14,marginTop:3}}>{p}%</div>
+            <div style={{color:'rgba(255,255,255,.8)',fontSize:10,marginTop:1}}>{fmt(item.achieved)}</div>
           </div>
-        );
+        </div>;
       })}
     </div>
   );
@@ -423,12 +530,11 @@ function LeaderboardPanel(){
             <div style={{color:'#fff',fontSize:21,fontWeight:800,marginTop:2}}>🏆 Leaderboard</div>
             <div style={{color:'rgba(255,255,255,.55)',fontSize:11,marginTop:2}}>May 2026 · All Cities</div>
           </div>
-          <button style={{background:'rgba(255,255,255,.15)',border:'none',color:'#fff',borderRadius:12,padding:'8px 13px',fontSize:11,fontWeight:700,cursor:'pointer'}}>📥 Export</button>
         </div>
         <div style={{background:'rgba(255,255,255,.12)',borderRadius:14,padding:'12px 16px',marginTop:14}}>
-          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
-            <div style={{color:'rgba(255,255,255,.7)',fontSize:11,textTransform:'uppercase',letterSpacing:'.5px'}}>Zone Target</div>
-            <div style={{color:'#fff',fontWeight:800,fontSize:16}}>{zp}% · {fmt(actual)}/{fmt(ZONE.target)}</div>
+          <div style={{display:'flex',justifyContent:'space-between',marginBottom:8}}>
+            <span style={{color:'rgba(255,255,255,.7)',fontSize:11,textTransform:'uppercase'}}>Zone Target</span>
+            <span style={{color:'#fff',fontWeight:800}}>{zp}% · {fmt(actual)}/{fmt(ZONE.target)}</span>
           </div>
           <div style={{background:'rgba(255,255,255,.2)',borderRadius:6,height:6}}>
             <div style={{width:`${Math.min(zp,100)}%`,height:'100%',background:zp>=90?'#4ADE80':zp>=60?'#FCD34D':'#F87171',borderRadius:6}}/>
@@ -449,7 +555,8 @@ function LeaderboardPanel(){
         ))}
       </div>
       <div style={{padding:'14px 16px'}}>
-        {tab==='tls'&&<><Podium items={tlRanked} nameKey="name"/>
+        {tab==='tls'&&<>
+          <Podium items={tlRanked} nk="name"/>
           {tlRanked.map((t,i)=>{const p=pct(t.achieved,t.target);const m=medal(i);return(
             <Card key={t.name} style={{marginBottom:8,borderLeft:i<3?`4px solid ${mClr(i)}`:`4px solid ${pClr(p)}`}}>
               <div style={{display:'flex',alignItems:'center',gap:10}}>
@@ -465,7 +572,8 @@ function LeaderboardPanel(){
             </Card>
           );})}
         </>}
-        {tab==='rms'&&<><Podium items={rmRanked} nameKey="rm"/>
+        {tab==='rms'&&<>
+          <Podium items={rmRanked} nk="rm"/>
           {rmRanked.map((r,i)=>{const p=pct(r.achieved,r.target);const m=medal(i);return(
             <Card key={r.rm} style={{marginBottom:8,borderLeft:i<3?`4px solid ${mClr(i)}`:`4px solid ${pClr(p)}`}}>
               <div style={{display:'flex',alignItems:'center',gap:10}}>
@@ -502,6 +610,7 @@ function LeaderboardPanel(){
   );
 }
 
+// ── ALL TEAMS ──────────────────────────────────────────────────────────────
 function AllTeamsPanel(){
   const[expanded,setExpanded]=useState(null);
   const[cityF,setCityF]=useState('All');
@@ -513,16 +622,15 @@ function AllTeamsPanel(){
         <div style={{color:'#fff',fontSize:21,fontWeight:800,marginTop:2}}>👥 All Teams</div>
         <div style={{color:'rgba(255,255,255,.55)',fontSize:11,marginTop:2}}>{ZONE.tls.length} TLs · {ALL_RMS.length} RMs · 3 Cities</div>
       </div>
-      <div style={{background:B.white,borderBottom:`1px solid ${B.line}`,padding:'10px 16px',display:'flex',gap:8,alignItems:'center',overflowX:'auto'}}>
+      <div style={{background:B.white,borderBottom:`1px solid ${B.line}`,padding:'10px 16px',display:'flex',gap:8,overflowX:'auto'}}>
         {['All','Pune','Mumbai','Nagpur'].map(c=>(
-          <button key={c} onClick={()=>setCityF(c)}
-            style={{padding:'6px 14px',borderRadius:20,border:`1.5px solid ${cityF===c?B.brand:B.line}`,background:cityF===c?B.brand:B.white,color:cityF===c?'#fff':B.muted,fontSize:12,fontWeight:600,cursor:'pointer',whiteSpace:'nowrap'}}>
+          <button key={c} onClick={()=>setCityF(c)} style={{padding:'6px 14px',borderRadius:20,border:`1.5px solid ${cityF===c?B.brand:B.line}`,background:cityF===c?B.brand:B.white,color:cityF===c?'#fff':B.muted,fontSize:12,fontWeight:600,cursor:'pointer',whiteSpace:'nowrap'}}>
             {c}
           </button>
         ))}
       </div>
       <div style={{padding:'14px 16px'}}>
-        {tls.map((tl,i)=>{
+        {tls.map((tl)=>{
           const p=pct(tl.achieved,tl.target);
           const myRMs=ALL_RMS.filter(r=>r.tl===tl.name);
           const isOpen=expanded===tl.name;
@@ -532,35 +640,26 @@ function AllTeamsPanel(){
                 <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
                   <div style={{display:'flex',alignItems:'center',gap:10}}>
                     <div style={{width:36,height:36,background:B.brandLight,borderRadius:10,display:'flex',alignItems:'center',justifyContent:'center',fontSize:16,flexShrink:0}}>👤</div>
-                    <div>
-                      <div style={{fontWeight:700,fontSize:15}}>TL: {tl.name}</div>
-                      <div style={{fontSize:11,color:B.muted,marginTop:1}}>{tl.city} · {tl.rms} RMs · {tl.leads} leads</div>
-                    </div>
+                    <div><div style={{fontWeight:700,fontSize:15}}>TL: {tl.name}</div><div style={{fontSize:11,color:B.muted,marginTop:1}}>{tl.city} · {tl.rms} RMs · {tl.leads} leads</div></div>
                   </div>
-                  <div style={{display:'flex',alignItems:'center',gap:8}}>
-                    <PBadge p={p}/>
-                    <span style={{color:B.muted,fontSize:16}}>{isOpen?'▲':'▼'}</span>
-                  </div>
+                  <div style={{display:'flex',alignItems:'center',gap:8}}><PBadge p={p}/><span style={{color:B.muted}}>{isOpen?'▲':'▼'}</span></div>
                 </div>
                 <div style={{display:'flex',alignItems:'center',gap:8}}><Bar p={p} h={8}/><div style={{fontSize:11,color:B.muted,whiteSpace:'nowrap'}}>{fmt(tl.achieved)}/{fmt(tl.target)}</div></div>
               </button>
               {isOpen&&<div style={{marginTop:12,borderTop:`1px solid ${B.line}`,paddingTop:12}}>
-                <div style={{fontSize:11,fontWeight:700,color:B.muted,textTransform:'uppercase',letterSpacing:'.5px',marginBottom:8}}>RMs under {tl.name}</div>
-                {myRMs.length?myRMs.sort((a,b)=>pct(b.achieved,b.target)-pct(a.achieved,a.target)).map((r,j)=>{
+                {myRMs.sort((a,b)=>pct(b.achieved,b.target)-pct(a.achieved,a.target)).map((r,j)=>{
                   const rp=pct(r.achieved,r.target);
-                  return(
-                    <div key={j} style={{display:'flex',alignItems:'center',gap:10,padding:'8px 0',borderBottom:j<myRMs.length-1?`1px solid ${B.line}`:'none'}}>
-                      <div style={{width:26,height:26,background:pBg(rp),borderRadius:6,display:'flex',alignItems:'center',justifyContent:'center',fontSize:10,fontWeight:800,color:pClr(rp),flexShrink:0}}>#{j+1}</div>
-                      <div style={{flex:1,minWidth:0}}>
-                        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:3}}>
-                          <div><div style={{fontWeight:600,fontSize:12}}>{r.rm}</div><div style={{fontSize:10,color:B.muted}}>{r.leads} leads · {r.clinics.length} clinics</div></div>
-                          <PBadge p={rp}/>
-                        </div>
-                        <Bar p={rp}/>
+                  return <div key={j} style={{display:'flex',alignItems:'center',gap:10,padding:'8px 0',borderBottom:j<myRMs.length-1?`1px solid ${B.line}`:'none'}}>
+                    <div style={{width:26,height:26,background:pBg(rp),borderRadius:6,display:'flex',alignItems:'center',justifyContent:'center',fontSize:10,fontWeight:800,color:pClr(rp),flexShrink:0}}>#{j+1}</div>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{display:'flex',justifyContent:'space-between',marginBottom:3}}>
+                        <div><div style={{fontWeight:600,fontSize:12}}>{r.rm}</div><div style={{fontSize:10,color:B.muted}}>{r.leads} leads · {r.clinics.length} clinics</div></div>
+                        <PBadge p={rp}/>
                       </div>
+                      <Bar p={rp}/>
                     </div>
-                  );
-                }):<div style={{color:B.muted,fontSize:12,fontStyle:'italic',padding:'8px 0'}}>No RMs in dataset</div>}
+                  </div>;
+                })}
               </div>}
             </Card>
           );
@@ -570,6 +669,7 @@ function AllTeamsPanel(){
   );
 }
 
+// ── ZONE OVERVIEW ──────────────────────────────────────────────────────────
 function ZoneOverviewPanel(){
   const actual=ZONE.achieved-ZONE.refund;
   const zp=pct(actual,ZONE.target);
@@ -603,10 +703,7 @@ function ZoneOverviewPanel(){
         <STitle>City Performance</STitle>
         {ZONE.cities.map((c,i)=>{const p=pct(c.achieved,c.target);return(
           <Card key={i} style={{marginBottom:10}}>
-            <div style={{display:'flex',justifyContent:'space-between',marginBottom:8}}>
-              <div><div style={{fontWeight:700,fontSize:15}}>{c.name}</div><div style={{color:B.muted,fontSize:11}}>{c.rms} RMs · {c.leads.toLocaleString()} leads</div></div>
-              <PBadge p={p}/>
-            </div>
+            <div style={{display:'flex',justifyContent:'space-between',marginBottom:8}}><div><div style={{fontWeight:700,fontSize:15}}>{c.name}</div><div style={{color:B.muted,fontSize:11}}>{c.rms} RMs · {c.leads.toLocaleString()} leads</div></div><PBadge p={p}/></div>
             <div style={{display:'flex',alignItems:'center',gap:8}}><Bar p={p} h={8}/><div style={{fontSize:11,color:B.muted,whiteSpace:'nowrap'}}>{fmt(c.achieved)}/{fmt(c.target)}</div></div>
           </Card>
         );})}
@@ -625,26 +722,110 @@ function ZoneOverviewPanel(){
   );
 }
 
+// ── ADMIN PANEL ────────────────────────────────────────────────────────────
 function AdminPanel(){
+  const[targets,setTargets]=useState({});
+  const[saving,setSaving]=useState('');
+  const[selectedTL,setSelectedTL]=useState('');
+  const[selectedRM,setSelectedRM]=useState('');
+  const[form,setForm]=useState({target:'',refund:'',monthlyLeads:'',dailyLeads:'',renewalTarget:'',netAchieved:'',monthlyAchieved:'',renewalAchieved:''});
+
+  useEffect(()=>{setTargets(loadStore());},[]);
+
+  const tls=ZONE.tls.map(t=>t.name);
+  const rms=selectedTL?ALL_RMS.filter(r=>r.tl===selectedTL).map(r=>r.rm):[];
+
+  const loadEntry=(tl,rm)=>{
+    const key=`${tl}|${rm}`;
+    const e=targets[safeKey(key)]||{};
+    setForm({
+      target:e.target||'',refund:e.refund||'',monthlyLeads:e.monthlyLeads||'',
+      dailyLeads:e.dailyLeads||'',renewalTarget:e.renewalTarget||'',
+      netAchieved:e.netAchieved||'',monthlyAchieved:e.monthlyAchieved||'',
+      renewalAchieved:e.renewalAchieved||''
+    });
+  };
+
+  const save=async()=>{
+    if(!selectedTL||!selectedRM){setSaving('Select TL and RM first');return;}
+    setSaving('Saving…');
+    const key=safeKey(`${selectedTL}|${selectedRM}`);
+    const entry={tl:selectedTL,rm:selectedRM,city:ALL_RMS.find(r=>r.rm===selectedRM)?.city||'',
+      ...Object.fromEntries(Object.entries(form).map(([k,v])=>[k,parseFloat(v)||0])),
+      updated:new Date().toLocaleString('en-IN'),updatedAt:Date.now()
+    };
+    const newTargets={...targets,[key]:entry};
+    saveStore(newTargets);
+    setTargets(newTargets);
+    setSaving('✅ Saved to Firebase!');
+    setTimeout(()=>setSaving(''),3000);
+  };
+
   const items=[
-    {icon:'📂',title:'Upload Leads CSV',sub:'Refresh clinic data from Even Pay source',color:B.brand},
-    {icon:'🎯',title:'Set Monthly Targets',sub:'Bulk upload RM targets via Excel',color:B.purple},
-    {icon:'🏥',title:'Manage Clinic Assignments',sub:'Reassign clinics, add new, remove old',color:B.green},
-    {icon:'👥',title:'Manage RMs & TLs',sub:'Add/remove members, update mapping',color:'#EA580C'},
-    {icon:'📊',title:'Download Reports',sub:'Full zonal Excel — all 4 sheets',color:B.blue2},
-    {icon:'🔔',title:'Send Notifications',sub:'Alert RMs and TLs about updates',color:'#DB2777'},
-    {icon:'🔒',title:'Manage Permissions',sub:'Control who sees what',color:'#0891B2'},
-    {icon:'🔄',title:'Auto-Sync Google Sheets',sub:'Coming soon — leads auto-update',color:B.line},
+    {icon:'📂',title:'Upload Leads CSV',sub:'Refresh clinic data from Even Pay source',color:B.brand,action:null},
+    {icon:'🔔',title:'Send Notifications',sub:'Alert RMs and TLs about updates',color:'#DB2777',action:null},
+    {icon:'🔒',title:'Manage Permissions',sub:'Control who sees what',color:'#0891B2',action:null},
+    {icon:'🔄',title:'Auto-Sync Google Sheets',sub:'Coming soon — leads auto-update',color:B.line,action:null},
   ];
+
   return(
     <div style={{background:B.bg,minHeight:'100vh',paddingBottom:80}}>
       <div style={{background:'linear-gradient(135deg,#1E1B4B,#4338CA)',padding:'22px 18px 30px',borderRadius:'0 0 28px 28px'}}>
         <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:6}}><EvenLogo size={26}/><span style={{fontSize:18,fontWeight:800,color:'#fff',letterSpacing:-.5}}>even</span></div>
         <div style={{color:'rgba(255,255,255,.65)',fontSize:12}}>Admin Panel</div>
         <div style={{color:'#fff',fontSize:20,fontWeight:800,marginTop:2}}>Sales Operations</div>
-        <div style={{color:'rgba(255,255,255,.55)',fontSize:11,marginTop:2}}>Full control — all cities, all teams</div>
+        <div style={{color:'rgba(255,255,255,.55)',fontSize:11,marginTop:2}}>Full control · Firebase connected 🔥</div>
       </div>
       <div style={{padding:'16px'}}>
+
+        {/* Set Targets */}
+        <Card style={{marginBottom:14}}>
+          <div style={{fontWeight:700,fontSize:15,color:B.ink,marginBottom:4}}>🎯 Set Monthly Targets</div>
+          <div style={{fontSize:12,color:B.muted,marginBottom:14}}>Saved directly to Firebase — visible to everyone instantly</div>
+          <div style={{display:'flex',gap:8,marginBottom:10,flexWrap:'wrap'}}>
+            <select value={selectedTL} onChange={e=>{setSelectedTL(e.target.value);setSelectedRM('');}}
+              style={{flex:1,padding:'10px 12px',border:`1.5px solid ${B.line}`,borderRadius:10,fontSize:13,background:B.white,outline:'none',minWidth:120}}>
+              <option value="">Select TL…</option>
+              {tls.map(t=><option key={t}>{t}</option>)}
+            </select>
+            <select value={selectedRM} onChange={e=>{setSelectedRM(e.target.value);loadEntry(selectedTL,e.target.value);}}
+              style={{flex:1,padding:'10px 12px',border:`1.5px solid ${B.line}`,borderRadius:10,fontSize:13,background:B.white,outline:'none',minWidth:120}}>
+              <option value="">Select RM…</option>
+              {rms.map(r=><option key={r}>{r}</option>)}
+            </select>
+          </div>
+          {selectedRM&&<>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:12}}>
+              {[['target','Target (₹)'],['refund','Refund (₹)'],['monthlyLeads','Monthly Leads Target'],['dailyLeads','Daily Leads Target'],['renewalTarget','Renewal Target'],['netAchieved','Net Achieved (₹)'],['monthlyAchieved','Monthly Leads Achieved'],['renewalAchieved','Renewals Achieved']].map(([k,l])=>(
+                <div key={k}>
+                  <div style={{fontSize:10,color:B.muted,marginBottom:4,fontWeight:600,textTransform:'uppercase',letterSpacing:'.4px'}}>{l}</div>
+                  <input type="number" value={form[k]} onChange={e=>setForm({...form,[k]:e.target.value})} placeholder="0"
+                    style={{width:'100%',padding:'9px 12px',border:`1.5px solid ${B.line}`,borderRadius:10,fontSize:14,outline:'none',boxSizing:'border-box'}}
+                    onFocus={e=>e.target.style.borderColor=B.brand} onBlur={e=>e.target.style.borderColor=B.line}/>
+                </div>
+              ))}
+            </div>
+            <button onClick={save} style={{width:'100%',padding:12,background:B.brand,color:'#fff',border:'none',borderRadius:12,fontSize:14,fontWeight:700,cursor:'pointer'}}>
+              💾 Save to Firebase
+            </button>
+            {saving&&<div style={{textAlign:'center',fontSize:12,marginTop:8,color:saving.includes('✅')?B.green:B.muted,fontWeight:600}}>{saving}</div>}
+          </>}
+        </Card>
+
+        {/* Saved targets list */}
+        {Object.keys(targets).length>0&&<Card style={{marginBottom:14}}>
+          <div style={{fontWeight:700,fontSize:14,color:B.ink,marginBottom:10}}>📊 Saved Targets ({Object.keys(targets).length} entries)</div>
+          {Object.values(targets).sort((a,b)=>(a.tl+a.rm).localeCompare(b.tl+b.rm)).slice(0,5).map((e,i)=>{
+            const actual=(e.netAchieved||0)-(e.refund||0);
+            const p=pct(actual,e.target||0);
+            return <div key={i} style={{padding:'8px 0',borderBottom:i<4?`1px solid ${B.line}`:'none',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+              <div><div style={{fontWeight:600,fontSize:13}}>{e.rm}</div><div style={{fontSize:11,color:B.muted}}>TL: {e.tl}</div></div>
+              <div style={{textAlign:'right'}}><PBadge p={p}/><div style={{fontSize:10,color:B.muted,marginTop:2}}>{fmt(actual)}/{fmt(e.target||0)}</div></div>
+            </div>;
+          })}
+        </Card>}
+
+        {/* Other actions */}
         {items.map((item,i)=>(
           <Card key={i} style={{marginBottom:10,display:'flex',alignItems:'center',gap:14,opacity:item.color===B.line?.5:1,cursor:'pointer'}}>
             <div style={{width:46,height:46,background:item.color===B.line?B.bg:item.color+'18',borderRadius:14,display:'flex',alignItems:'center',justifyContent:'center',fontSize:22,flexShrink:0}}>{item.icon}</div>
@@ -657,14 +838,18 @@ function AdminPanel(){
   );
 }
 
-function FullAccessView({user}){
+// ── FULL ACCESS WRAPPER ────────────────────────────────────────────────────
+function FullAccessView({user,onLogout}){
   const[screen,setScreen]=useState('zone');
   const isAdmin=user.role==='admin';
   return(
     <div style={{maxWidth:600,margin:'0 auto',position:'relative',minHeight:'100vh',background:B.bg}}>
       <div style={{position:'fixed',top:0,left:'50%',transform:'translateX(-50%)',width:'100%',maxWidth:600,background:isAdmin?'#1E1B4B':B.brandDark,padding:'6px 16px',display:'flex',justifyContent:'space-between',alignItems:'center',zIndex:150}}>
-        <div style={{display:'flex',alignItems:'center',gap:8}}><EvenLogo size={18}/><span style={{color:'rgba(255,255,255,.9)',fontSize:12,fontWeight:700}}>{isAdmin?`⚡ Admin — ${user.name}`:'🔭 Zonal Head'}</span></div>
-        <span style={{background:'rgba(255,255,255,.15)',color:'rgba(255,255,255,.8)',fontSize:10,fontWeight:700,padding:'2px 8px',borderRadius:10}}>FULL ACCESS</span>
+        <div style={{display:'flex',alignItems:'center',gap:8}}><EvenLogo size={18}/><span style={{color:'rgba(255,255,255,.9)',fontSize:12,fontWeight:700}}>{isAdmin?`⚡ ${user.name}`:'🔭 Zonal Head'}</span></div>
+        <div style={{display:'flex',alignItems:'center',gap:10}}>
+          <span style={{background:'rgba(255,255,255,.15)',color:'rgba(255,255,255,.8)',fontSize:10,fontWeight:700,padding:'2px 8px',borderRadius:10}}>FULL ACCESS</span>
+          <button onClick={onLogout} style={{background:'rgba(255,255,255,.15)',border:'none',color:'rgba(255,255,255,.8)',borderRadius:8,padding:'4px 10px',fontSize:10,fontWeight:600,cursor:'pointer'}}>Logout</button>
+        </div>
       </div>
       <div style={{paddingTop:34}}>
         {screen==='zone'&&<ZoneOverviewPanel/>}
@@ -678,18 +863,66 @@ function FullAccessView({user}){
   );
 }
 
+// ── APP ROOT ───────────────────────────────────────────────────────────────
 function App(){
   const[user,setUser]=useState(null);
-  const login=u=>setUser(u);
-  if(!user)return <Login onLogin={login}/>;
-  if(user.role==='zonal'||user.role==='admin')return(
-    <><FullAccessView user={user}/><button onClick={()=>setUser(null)} style={{position:'fixed',top:8,right:14,background:'rgba(255,255,255,.15)',border:'none',color:'rgba(255,255,255,.8)',borderRadius:8,padding:'4px 10px',fontSize:10,fontWeight:600,cursor:'pointer',zIndex:300}}>Logout</button></>
-  );
+  const[loading,setLoading]=useState(true);
+  const[initMsg,setInitMsg]=useState('Starting up…');
+
+  useEffect(()=>{
+    // Check if user is already logged in
+    const unsub=auth.onAuthStateChanged(async(firebaseUser)=>{
+      if(firebaseUser){
+        setInitMsg('Loading your data…');
+        await initFirestore();
+        const userDoc=await db.collection('users').doc(firebaseUser.uid).get();
+        if(userDoc.exists){
+          setUser({...userDoc.data(),uid:firebaseUser.uid});
+        } else {
+          const mapped=ROLE_MAP[firebaseUser.email?.toLowerCase()];
+          if(mapped){
+            await db.collection('users').doc(firebaseUser.uid).set({email:firebaseUser.email,...mapped,createdAt:new Date().toISOString()});
+            setUser({...mapped,uid:firebaseUser.uid});
+          } else {
+            await auth.signOut();
+          }
+        }
+      }
+      setLoading(false);
+    });
+    return()=>unsub();
+  },[]);
+
+  const handleLogin=async(userData)=>{
+    setInitMsg('Loading your data…');
+    setLoading(true);
+    await initFirestore();
+    setUser(userData);
+    setLoading(false);
+  };
+
+  const handleLogout=async()=>{
+    await auth.signOut();
+    setUser(null);
+    _cache={targets:{},tl_targets:{},admin_state:null,tl_notes:{},loaded:false};
+  };
+
+  if(loading) return <LoadingScreen message={initMsg}/>;
+  if(!user) return <Login onLogin={handleLogin}/>;
+
+  const role=user.role;
+  if(role==='zonal'||role==='admin') return <FullAccessView user={user} onLogout={handleLogout}/>;
+
   return(
     <div style={{maxWidth:600,margin:'0 auto',position:'relative',minHeight:'100vh',background:B.bg}}>
-      {user.role==='rm'&&<RMView user={user}/>}
-      {user.role==='tl'&&<TLView user={user}/>}
-      <button onClick={()=>setUser(null)} style={{position:'fixed',top:14,right:14,background:'rgba(0,0,0,.18)',border:'none',color:'#fff',borderRadius:8,padding:'5px 11px',fontSize:11,fontWeight:600,cursor:'pointer',zIndex:200}}>Logout</button>
+      <div style={{position:'fixed',top:0,left:'50%',transform:'translateX(-50%)',width:'100%',maxWidth:600,background:B.brandDark,padding:'6px 16px',display:'flex',justifyContent:'space-between',alignItems:'center',zIndex:150}}>
+        <div style={{display:'flex',alignItems:'center',gap:8}}><EvenLogo size={18}/><span style={{color:'rgba(255,255,255,.9)',fontSize:12,fontWeight:700}}>{user.name}</span></div>
+        <button onClick={handleLogout} style={{background:'rgba(255,255,255,.15)',border:'none',color:'rgba(255,255,255,.8)',borderRadius:8,padding:'4px 10px',fontSize:10,fontWeight:600,cursor:'pointer'}}>Logout</button>
+      </div>
+      <div style={{paddingTop:34}}>
+        {role==='rm'&&<RMView user={user}/>}
+        {role==='tl'&&<TLView user={user}/>}
+      </div>
     </div>
   );
 }
