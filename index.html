@@ -970,21 +970,47 @@ function ZoneOverviewPanel(){
 
 // ── ADMIN PANEL ────────────────────────────────────────────────────────────
 function AdminPanel(){
-  const[targets,setTargets]=useState({});const[saving,setSaving]=useState('');
-  const[selectedTL,setSelectedTL]=useState('');const[selectedRM,setSelectedRM]=useState('');
+  const isMobile=useIsMobile();
+  const[adminTab,setAdminTab]=useState('targets');
+
+  // ── Targets state ──
+  const[targets,setTargets]=useState({});
+  const[saving,setSaving]=useState('');
+  const[selectedTL,setSelectedTL]=useState('');
+  const[selectedRM,setSelectedRM]=useState('');
   const[form,setForm]=useState({target:'',refund:'',monthlyLeads:'',dailyLeads:'',renewalTarget:'',netAchieved:'',monthlyAchieved:'',dailyAchieved:'',renewalAchieved:''});
+
+  // ── RM management state ──
+  const[workingRMs,setWorkingRMs]=useState(()=>ALL_RMS.map(r=>({...r})));
+  const[workingTLs]=useState(()=>ZONE.tls.map(t=>t.name));
+  const[rmSearch,setRmSearch]=useState('');
+  const[editRM,setEditRM]=useState(null); // {index, rm, tl, city}
+  const[showAddRM,setShowAddRM]=useState(false);
+  const[newRM,setNewRM]=useState({rm:'',tl:'',city:'Pune'});
+  const[rmSaving,setRmSaving]=useState('');
+
+  // ── Clinic management state ──
+  const[workingClinics,setWorkingClinics]=useState(()=>ALL_RMS.flatMap(r=>r.clinics.map(c=>({...c,rm:r.rm,tl:r.tl,city:r.city}))));
+  const[clinicSearch,setClinicSearch]=useState('');
+  const[showAddClinic,setShowAddClinic]=useState(false);
+  const[newClinic,setNewClinic]=useState({name:'',locality:'',rm:'',city:'Pune',status:'Stable',freq:'Tri-weekly',slot:'',leads:0});
+  const[clinicSaving,setClinicSaving]=useState('');
+
   useEffect(()=>{setTargets(loadStore());},[]);
+
   const tls=ZONE.tls.map(t=>t.name);
-  const rms=selectedTL?ALL_RMS.filter(r=>r.tl===selectedTL).map(r=>r.rm):[];
+  const rms=selectedTL?workingRMs.filter(r=>r.tl===selectedTL).map(r=>r.rm):[];
+
   const loadEntry=(tl,rm)=>{
     const e=targets[safeKey(`${tl}|${rm}`)]||{};
     setForm({target:e.target||'',refund:e.refund||'',monthlyLeads:e.monthlyLeads||'',dailyLeads:e.dailyLeads||'',renewalTarget:e.renewalTarget||'',netAchieved:e.netAchieved||'',monthlyAchieved:e.monthlyAchieved||'',dailyAchieved:e.dailyAchieved||'',renewalAchieved:e.renewalAchieved||''});
   };
-  const save=async()=>{
+
+  const saveTargets=async()=>{
     if(!selectedTL||!selectedRM){setSaving('Select TL and RM first');return;}
     setSaving('Saving…');
     const key=safeKey(`${selectedTL}|${selectedRM}`);
-    const entry={tl:selectedTL,rm:selectedRM,city:ALL_RMS.find(r=>r.rm===selectedRM)?.city||'',
+    const entry={tl:selectedTL,rm:selectedRM,city:workingRMs.find(r=>r.rm===selectedRM)?.city||'',
       ...Object.fromEntries(Object.entries(form).map(([k,v])=>[k,parseFloat(v)||0])),
       updated:new Date().toLocaleString('en-IN'),updatedAt:Date.now()};
     const newT={...targets,[key]:entry};
@@ -992,18 +1018,118 @@ function AdminPanel(){
     setSaving('✅ Saved to Firebase!');
     setTimeout(()=>setSaving(''),3000);
   };
-  const isMobile=useIsMobile();
+
+  const saveRMsToFirebase=async(rms)=>{
+    try{ await db.collection('config').doc('rm_assignments').set({rms,updatedAt:new Date().toISOString()}); }
+    catch(e){ console.warn('RM save failed:',e); }
+  };
+
+  const saveClinicsToFirebase=async(clinics)=>{
+    try{ await db.collection('config').doc('clinic_assignments').set({clinics,updatedAt:new Date().toISOString()}); }
+    catch(e){ console.warn('Clinic save failed:',e); }
+  };
+
+  // ── RM Actions ──
+  const handleAddRM=async()=>{
+    if(!newRM.rm.trim()||!newRM.tl){setRmSaving('Fill in all fields');return;}
+    if(workingRMs.find(r=>r.rm.toLowerCase()===newRM.rm.toLowerCase())){setRmSaving('RM already exists');return;}
+    setRmSaving('Saving…');
+    const updated=[...workingRMs,{...newRM,rm:newRM.rm.trim(),leads:0,clinics:[],target:0,achieved:0,refund:0,monthlyTgt:0,monthlyAchv:0,dailyTgt:0,dailyAchv:0,renewalTgt:0,renewalAchv:0}];
+    setWorkingRMs(updated);
+    await saveRMsToFirebase(updated);
+    setNewRM({rm:'',tl:'',city:'Pune'});setShowAddRM(false);
+    setRmSaving('✅ RM added!');setTimeout(()=>setRmSaving(''),3000);
+  };
+
+  const handleEditRM=async()=>{
+    if(!editRM)return;
+    setRmSaving('Saving…');
+    const updated=workingRMs.map((r,i)=>i===editRM.index?{...r,tl:editRM.tl,city:editRM.city}:r);
+    setWorkingRMs(updated);
+    await saveRMsToFirebase(updated);
+    setEditRM(null);
+    setRmSaving('✅ Updated!');setTimeout(()=>setRmSaving(''),3000);
+  };
+
+  const handleRemoveRM=(index)=>{
+    const rm=workingRMs[index];
+    if(rm.clinics&&rm.clinics.length>0){alert(`${rm.rm} has ${rm.clinics.length} clinic(s). Reassign clinics first.`);return;}
+    if(!window.confirm(`Remove ${rm.rm} from the system? This cannot be undone.`))return;
+    const updated=workingRMs.filter((_,i)=>i!==index);
+    setWorkingRMs(updated);
+    saveRMsToFirebase(updated);
+    setRmSaving('✅ RM removed');setTimeout(()=>setRmSaving(''),3000);
+  };
+
+  // ── Clinic Actions ──
+  const handleReassignClinic=(clinicIndex,newRMName)=>{
+    const newRMObj=workingRMs.find(r=>r.rm===newRMName);
+    const updated=workingClinics.map((c,i)=>i===clinicIndex?{...c,rm:newRMName,tl:newRMObj?.tl||c.tl,city:newRMObj?.city||c.city}:c);
+    setWorkingClinics(updated);
+    saveClinicsToFirebase(updated);
+    setClinicSaving('✅ Reassigned!');setTimeout(()=>setClinicSaving(''),3000);
+  };
+
+  const handleAddClinic=async()=>{
+    if(!newClinic.name.trim()||!newClinic.rm){setClinicSaving('Fill clinic name and assign RM');return;}
+    setClinicSaving('Saving…');
+    const rmObj=workingRMs.find(r=>r.rm===newClinic.rm);
+    const clinic={...newClinic,name:newClinic.name.trim(),tl:rmObj?.tl||'',city:rmObj?.city||newClinic.city};
+    const updated=[...workingClinics,clinic];
+    setWorkingClinics(updated);
+    await saveClinicsToFirebase(updated);
+    setNewClinic({name:'',locality:'',rm:'',city:'Pune',status:'Stable',freq:'Tri-weekly',slot:'',leads:0});
+    setShowAddClinic(false);
+    setClinicSaving('✅ Clinic added!');setTimeout(()=>setClinicSaving(''),3000);
+  };
+
+  const handleRemoveClinic=(index)=>{
+    const c=workingClinics[index];
+    if(!window.confirm(`Remove ${c.name} from route plan?`))return;
+    const updated=workingClinics.filter((_,i)=>i!==index);
+    setWorkingClinics(updated);
+    saveClinicsToFirebase(updated);
+    setClinicSaving('✅ Clinic removed');setTimeout(()=>setClinicSaving(''),3000);
+  };
+
+  const filteredRMs=workingRMs.filter(r=>!rmSearch||r.rm.toLowerCase().includes(rmSearch.toLowerCase())||r.tl.toLowerCase().includes(rmSearch.toLowerCase()));
+  const filteredClinics=workingClinics.filter(c=>!clinicSearch||c.name.toLowerCase().includes(clinicSearch.toLowerCase())||c.rm.toLowerCase().includes(clinicSearch.toLowerCase()));
+
+  const inp=(val,set,ph,type='text')=><input value={val} onChange={e=>set(e.target.value)} placeholder={ph} type={type}
+    style={{width:'100%',padding:'9px 12px',border:`1.5px solid ${B.line}`,borderRadius:10,fontSize:13,outline:'none',boxSizing:'border-box'}}
+    onFocus={e=>e.target.style.borderColor=B.brand} onBlur={e=>e.target.style.borderColor=B.line}/>;
+
+  const sel=(val,set,opts)=><select value={val} onChange={e=>set(e.target.value)}
+    style={{width:'100%',padding:'9px 12px',border:`1.5px solid ${B.line}`,borderRadius:10,fontSize:13,background:B.white,outline:'none',cursor:'pointer'}}>
+    {opts.map(o=>typeof o==='string'?<option key={o}>{o}</option>:<option key={o.v} value={o.v}>{o.l}</option>)}
+  </select>;
+
+  const adminTabs=[['targets','🎯 Targets'],['rms','👥 RMs & TLs'],['clinics','🏥 Clinics'],['settings','⚙️ Settings']];
+
   return(
     <div style={{background:B.bg,minHeight:'100vh',paddingBottom:isMobile?80:20,padding:isMobile?'0 0 80px 0':'20px 24px'}}>
       {!isMobile&&<div style={{fontSize:24,fontWeight:800,color:B.navy,marginBottom:20}}>⚙️ Admin Panel</div>}
-      {isMobile&&<div style={{background:'linear-gradient(135deg,#1E1B4B,#4338CA)',padding:'22px 18px 22px',borderRadius:'0 0 28px 28px',marginBottom:16}}>
+      {isMobile&&<div style={{background:'linear-gradient(135deg,#1E1B4B,#4338CA)',padding:'22px 18px 16px',borderRadius:'0 0 28px 28px',marginBottom:0}}>
         <div style={{color:'rgba(255,255,255,.65)',fontSize:12}}>Admin Panel</div>
         <div style={{color:'#fff',fontSize:20,fontWeight:800,marginTop:2}}>Sales Operations</div>
       </div>}
-      <div style={{maxWidth:900}}>
-        <Card style={{marginBottom:16}}>
+
+      {/* Admin tab nav */}
+      <div style={{background:B.white,borderBottom:`1px solid ${B.line}`,display:'flex',overflowX:'auto',marginBottom:20}}>
+        {adminTabs.map(([id,lbl])=>(
+          <button key={id} onClick={()=>setAdminTab(id)}
+            style={{padding:'12px 16px',background:'none',border:'none',borderBottom:adminTab===id?`3px solid ${B.brand}`:'3px solid transparent',color:adminTab===id?B.brand:B.muted,fontWeight:adminTab===id?700:500,fontSize:13,cursor:'pointer',whiteSpace:'nowrap'}}>
+            {lbl}
+          </button>
+        ))}
+      </div>
+
+      <div style={{maxWidth:1000}}>
+
+        {/* ── TARGETS TAB ── */}
+        {adminTab==='targets'&&<Card>
           <div style={{fontWeight:700,fontSize:16,color:B.ink,marginBottom:4}}>🎯 Set Monthly Targets</div>
-          <div style={{fontSize:12,color:B.muted,marginBottom:16}}>Saved directly to Firebase — visible to all devices instantly</div>
+          <div style={{fontSize:12,color:B.muted,marginBottom:16}}>Saved to Firebase — visible on all devices instantly</div>
           <div style={{display:'flex',gap:8,marginBottom:14,flexWrap:'wrap'}}>
             <select value={selectedTL} onChange={e=>{setSelectedTL(e.target.value);setSelectedRM('');}}
               style={{flex:1,padding:'10px 12px',border:`1.5px solid ${B.line}`,borderRadius:10,fontSize:13,background:B.white,outline:'none',minWidth:120}}>
@@ -1026,25 +1152,184 @@ function AdminPanel(){
               ))}
             </div>
             <div style={{display:'flex',gap:10,alignItems:'center'}}>
-              <button onClick={save} style={{padding:'11px 24px',background:B.brand,color:'#fff',border:'none',borderRadius:12,fontSize:14,fontWeight:700,cursor:'pointer'}}>💾 Save to Firebase</button>
+              <button onClick={saveTargets} style={{padding:'11px 24px',background:B.brand,color:'#fff',border:'none',borderRadius:12,fontSize:14,fontWeight:700,cursor:'pointer'}}>💾 Save to Firebase</button>
               {saving&&<span style={{fontSize:13,color:saving.includes('✅')?B.green:B.muted,fontWeight:600}}>{saving}</span>}
             </div>
           </>}
-        </Card>
+        </Card>}
 
-        {/* Other admin actions */}
-        {[
-          {icon:'📂',title:'Upload Leads CSV',sub:'Refresh clinic data from Even Pay source',color:B.brand},
-          {icon:'🔗',title:'Connect Google Sheets',sub:'Auto-sync leads, payments, targets',color:B.green},
-          {icon:'🔔',title:'Send Notifications',sub:'Alert RMs and TLs about updates',color:'#DB2777'},
-          {icon:'🔒',title:'Manage Permissions',sub:'Control who sees what — add/remove users',color:'#0891B2'},
-        ].map((item,i)=>(
-          <Card key={i} style={{marginBottom:10,display:'flex',alignItems:'center',gap:14,cursor:'pointer'}}>
-            <div style={{width:46,height:46,background:item.color+'18',borderRadius:14,display:'flex',alignItems:'center',justifyContent:'center',fontSize:22,flexShrink:0}}>{item.icon}</div>
-            <div style={{flex:1}}><div style={{fontWeight:700,fontSize:14}}>{item.title}</div><div style={{fontSize:12,color:B.muted,marginTop:2}}>{item.sub}</div></div>
-            <div style={{color:B.line,fontSize:20}}>›</div>
-          </Card>
-        ))}
+        {/* ── RMs & TLs TAB ── */}
+        {adminTab==='rms'&&<div>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14,flexWrap:'wrap',gap:10}}>
+            <input value={rmSearch} onChange={e=>setRmSearch(e.target.value)} placeholder="🔍 Search RM or TL…"
+              style={{flex:1,maxWidth:300,padding:'9px 12px',border:`1.5px solid ${B.line}`,borderRadius:10,fontSize:13,outline:'none'}}
+              onFocus={e=>e.target.style.borderColor=B.brand} onBlur={e=>e.target.style.borderColor=B.line}/>
+            <div style={{display:'flex',gap:8,alignItems:'center'}}>
+              {rmSaving&&<span style={{fontSize:13,color:rmSaving.includes('✅')?B.green:B.red,fontWeight:600}}>{rmSaving}</span>}
+              <button onClick={()=>setShowAddRM(!showAddRM)}
+                style={{padding:'9px 18px',background:B.brand,color:'#fff',border:'none',borderRadius:10,fontSize:13,fontWeight:700,cursor:'pointer'}}>
+                + Add New RM
+              </button>
+            </div>
+          </div>
+
+          {/* Add RM form */}
+          {showAddRM&&<Card style={{marginBottom:14,borderLeft:`4px solid ${B.brand}`}}>
+            <div style={{fontWeight:700,fontSize:14,color:B.brand,marginBottom:12}}>Add New RM</div>
+            <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(160px,1fr))',gap:10,marginBottom:12}}>
+              <div><div style={{fontSize:11,color:B.muted,marginBottom:4,fontWeight:600,textTransform:'uppercase'}}>RM Name *</div>{inp(newRM.rm,v=>setNewRM({...newRM,rm:v}),'e.g. Rohan Sharma')}</div>
+              <div><div style={{fontSize:11,color:B.muted,marginBottom:4,fontWeight:600,textTransform:'uppercase'}}>Assign TL *</div>
+                {sel(newRM.tl,v=>setNewRM({...newRM,tl:v}),[{v:'',l:'Select TL…'},...workingTLs])}
+              </div>
+              <div><div style={{fontSize:11,color:B.muted,marginBottom:4,fontWeight:600,textTransform:'uppercase'}}>City</div>
+                {sel(newRM.city,v=>setNewRM({...newRM,city:v}),['Pune','Mumbai','Nagpur'])}
+              </div>
+            </div>
+            <div style={{display:'flex',gap:8}}>
+              <button onClick={handleAddRM} style={{padding:'9px 20px',background:B.green,color:'#fff',border:'none',borderRadius:10,fontSize:13,fontWeight:700,cursor:'pointer'}}>✓ Add RM</button>
+              <button onClick={()=>{setShowAddRM(false);setNewRM({rm:'',tl:'',city:'Pune'});}} style={{padding:'9px 16px',background:B.bg,color:B.muted,border:`1px solid ${B.line}`,borderRadius:10,fontSize:13,cursor:'pointer'}}>Cancel</button>
+            </div>
+          </Card>}
+
+          {/* Edit RM modal */}
+          {editRM&&<Card style={{marginBottom:14,borderLeft:`4px solid ${B.amber}`}}>
+            <div style={{fontWeight:700,fontSize:14,color:B.amber,marginBottom:12}}>Edit: {editRM.rm}</div>
+            <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(160px,1fr))',gap:10,marginBottom:12}}>
+              <div><div style={{fontSize:11,color:B.muted,marginBottom:4,fontWeight:600,textTransform:'uppercase'}}>Reassign to TL</div>
+                {sel(editRM.tl,v=>setEditRM({...editRM,tl:v}),workingTLs)}
+              </div>
+              <div><div style={{fontSize:11,color:B.muted,marginBottom:4,fontWeight:600,textTransform:'uppercase'}}>City</div>
+                {sel(editRM.city,v=>setEditRM({...editRM,city:v}),['Pune','Mumbai','Nagpur'])}
+              </div>
+            </div>
+            <div style={{display:'flex',gap:8}}>
+              <button onClick={handleEditRM} style={{padding:'9px 20px',background:B.amber,color:'#fff',border:'none',borderRadius:10,fontSize:13,fontWeight:700,cursor:'pointer'}}>✓ Save Changes</button>
+              <button onClick={()=>setEditRM(null)} style={{padding:'9px 16px',background:B.bg,color:B.muted,border:`1px solid ${B.line}`,borderRadius:10,fontSize:13,cursor:'pointer'}}>Cancel</button>
+            </div>
+          </Card>}
+
+          {/* RM Table */}
+          <div className="tbl-wrap">
+            <table className="dt">
+              <thead><tr><th>RM Name</th><th>TL</th><th>City</th><th className="num">Clinics</th><th className="num">Leads</th><th>Actions</th></tr></thead>
+              <tbody>
+                {filteredRMs.map((r,i)=>(
+                  <tr key={i}>
+                    <td><strong>{r.rm}</strong></td>
+                    <td>{r.tl}</td>
+                    <td>{r.city}</td>
+                    <td className="num">{r.clinics?.length||0}</td>
+                    <td className="num">{r.leads||0}</td>
+                    <td>
+                      <div style={{display:'flex',gap:6'}}>
+                        <button onClick={()=>setEditRM({index:i,rm:r.rm,tl:r.tl,city:r.city})}
+                          style={{padding:'5px 12px',background:B.brandLight,color:B.brand,border:'none',borderRadius:8,fontSize:12,fontWeight:600,cursor:'pointer'}}>
+                          ✏️ Edit TL
+                        </button>
+                        <button onClick={()=>handleRemoveRM(i)}
+                          style={{padding:'5px 12px',background:B.redBg,color:B.red,border:'none',borderRadius:8,fontSize:12,fontWeight:600,cursor:'pointer',marginLeft:6}}>
+                          🗑️ Remove
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div style={{fontSize:12,color:B.muted,marginTop:10}}>Showing {filteredRMs.length} of {workingRMs.length} RMs</div>
+        </div>}
+
+        {/* ── CLINICS TAB ── */}
+        {adminTab==='clinics'&&<div>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14,flexWrap:'wrap',gap:10}}>
+            <input value={clinicSearch} onChange={e=>setClinicSearch(e.target.value)} placeholder="🔍 Search clinic or RM…"
+              style={{flex:1,maxWidth:300,padding:'9px 12px',border:`1.5px solid ${B.line}`,borderRadius:10,fontSize:13,outline:'none'}}
+              onFocus={e=>e.target.style.borderColor=B.brand} onBlur={e=>e.target.style.borderColor=B.line}/>
+            <div style={{display:'flex',gap:8,alignItems:'center'}}>
+              {clinicSaving&&<span style={{fontSize:13,color:clinicSaving.includes('✅')?B.green:B.red,fontWeight:600}}>{clinicSaving}</span>}
+              <button onClick={()=>setShowAddClinic(!showAddClinic)}
+                style={{padding:'9px 18px',background:B.brand,color:'#fff',border:'none',borderRadius:10,fontSize:13,fontWeight:700,cursor:'pointer'}}>
+                + Add New Clinic
+              </button>
+            </div>
+          </div>
+
+          {/* Add Clinic form */}
+          {showAddClinic&&<Card style={{marginBottom:14,borderLeft:`4px solid ${B.green}`}}>
+            <div style={{fontWeight:700,fontSize:14,color:B.green,marginBottom:12}}>Add New Clinic</div>
+            <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(160px,1fr))',gap:10,marginBottom:12}}>
+              <div><div style={{fontSize:11,color:B.muted,marginBottom:4,fontWeight:600,textTransform:'uppercase'}}>Clinic Name *</div>{inp(newClinic.name,v=>setNewClinic({...newClinic,name:v}),'e.g. Sunrise Clinic')}</div>
+              <div><div style={{fontSize:11,color:B.muted,marginBottom:4,fontWeight:600,textTransform:'uppercase'}}>Locality</div>{inp(newClinic.locality,v=>setNewClinic({...newClinic,locality:v}),'e.g. Aundh')}</div>
+              <div><div style={{fontSize:11,color:B.muted,marginBottom:4,fontWeight:600,textTransform:'uppercase'}}>Assign RM *</div>
+                {sel(newClinic.rm,v=>setNewClinic({...newClinic,rm:v}),[{v:'',l:'Select RM…'},...workingRMs.map(r=>r.rm)])}
+              </div>
+              <div><div style={{fontSize:11,color:B.muted,marginBottom:4,fontWeight:600,textTransform:'uppercase'}}>Status</div>
+                {sel(newClinic.status,v=>setNewClinic({...newClinic,status:v}),['Growing','Stable','Declining'])}
+              </div>
+              <div><div style={{fontSize:11,color:B.muted,marginBottom:4,fontWeight:600,textTransform:'uppercase'}}>Frequency</div>
+                {sel(newClinic.freq,v=>setNewClinic({...newClinic,freq:v}),['Daily','Tri-weekly','Bi-weekly','Weekly'])}
+              </div>
+              <div><div style={{fontSize:11,color:B.muted,marginBottom:4,fontWeight:600,textTransform:'uppercase'}}>Timeslot</div>{inp(newClinic.slot,v=>setNewClinic({...newClinic,slot:v}),'e.g. 11:00–1:00')}</div>
+              <div><div style={{fontSize:11,color:B.muted,marginBottom:4,fontWeight:600,textTransform:'uppercase'}}>Leads</div>{inp(newClinic.leads,v=>setNewClinic({...newClinic,leads:parseInt(v)||0}),'0','number')}</div>
+            </div>
+            <div style={{display:'flex',gap:8}}>
+              <button onClick={handleAddClinic} style={{padding:'9px 20px',background:B.green,color:'#fff',border:'none',borderRadius:10,fontSize:13,fontWeight:700,cursor:'pointer'}}>✓ Add Clinic</button>
+              <button onClick={()=>{setShowAddClinic(false);setNewClinic({name:'',locality:'',rm:'',city:'Pune',status:'Stable',freq:'Tri-weekly',slot:'',leads:0});}} style={{padding:'9px 16px',background:B.bg,color:B.muted,border:`1px solid ${B.line}`,borderRadius:10,fontSize:13,cursor:'pointer'}}>Cancel</button>
+            </div>
+          </Card>}
+
+          {/* Clinic Table */}
+          <div className="tbl-wrap">
+            <table className="dt">
+              <thead><tr><th>Clinic</th><th>Locality</th><th>Current RM</th><th>TL</th><th>City</th><th className="num">Leads</th><th>Status</th><th>Reassign RM</th><th>Action</th></tr></thead>
+              <tbody>
+                {filteredClinics.map((c,i)=>(
+                  <tr key={i}>
+                    <td><strong>{c.name}</strong></td>
+                    <td style={{color:B.muted}}>{c.locality||'—'}</td>
+                    <td>{c.rm}</td>
+                    <td>{c.tl}</td>
+                    <td>{c.city}</td>
+                    <td className="num">{c.leads||0}</td>
+                    <td><SBadge status={c.status}/></td>
+                    <td>
+                      <select defaultValue={c.rm} onChange={e=>handleReassignClinic(i,e.target.value)}
+                        style={{padding:'5px 8px',border:`1.5px solid ${B.line}`,borderRadius:8,fontSize:12,background:B.white,outline:'none',cursor:'pointer',minWidth:130}}>
+                        {workingRMs.map(r=><option key={r.rm} value={r.rm}>{r.rm}</option>)}
+                      </select>
+                    </td>
+                    <td>
+                      <button onClick={()=>handleRemoveClinic(i)}
+                        style={{padding:'5px 10px',background:B.redBg,color:B.red,border:'none',borderRadius:8,fontSize:12,fontWeight:600,cursor:'pointer'}}>
+                        🗑️
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div style={{fontSize:12,color:B.muted,marginTop:10}}>Showing {filteredClinics.length} of {workingClinics.length} clinics</div>
+        </div>}
+
+        {/* ── SETTINGS TAB ── */}
+        {adminTab==='settings'&&<div>
+          {[
+            {icon:'📂',title:'Upload Leads CSV',sub:'Refresh clinic data from Even Pay source sheet',color:B.brand},
+            {icon:'🔗',title:'Connect Google Sheets',sub:'Auto-sync leads, payments and targets (Apps Script)',color:B.green},
+            {icon:'🔔',title:'Send Notifications',sub:'Alert RMs and TLs about important updates',color:'#DB2777'},
+            {icon:'🔒',title:'Manage User Access',sub:'Add/remove user accounts and set roles',color:'#0891B2'},
+            {icon:'📊',title:'Download Full Report',sub:'Export complete zonal report as Excel (all 4 sheets)',color:B.navy},
+          ].map((item,i)=>(
+            <Card key={i} style={{marginBottom:10,display:'flex',alignItems:'center',gap:14,cursor:'pointer'}}>
+              <div style={{width:46,height:46,background:item.color+'18',borderRadius:14,display:'flex',alignItems:'center',justifyContent:'center',fontSize:22,flexShrink:0}}>{item.icon}</div>
+              <div style={{flex:1}}><div style={{fontWeight:700,fontSize:14}}>{item.title}</div><div style={{fontSize:12,color:B.muted,marginTop:2}}>{item.sub}</div></div>
+              <div style={{color:B.line,fontSize:20}}>›</div>
+            </Card>
+          ))}
+        </div>}
+
       </div>
     </div>
   );
@@ -1121,3 +1406,4 @@ ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
 </script>
 </body>
 </html>
+
