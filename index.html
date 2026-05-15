@@ -1297,7 +1297,7 @@ function AdminPanel(){
     {opts.map(o=>typeof o==='string'?<option key={o}>{o}</option>:<option key={o.v} value={o.v}>{o.l}</option>)}
   </select>;
 
-  const adminTabs=[['targets','🎯 Targets'],['rms','👥 RMs & TLs'],['clinics','🏥 Clinics'],['settings','⚙️ Settings']];
+  const adminTabs=[['targets','🎯 Targets'],['rms','👥 RMs & TLs'],['clinics','🏥 Clinics'],['settings','👤 Users & Reports']];
 
   return(
     <div style={{background:B.bg,minHeight:'100vh',paddingBottom:isMobile?80:20,padding:isMobile?'0 0 80px 0':'20px 24px'}}>
