@@ -968,6 +968,199 @@ function ZoneOverviewPanel(){
   );
 }
 
+// ── USERS TAB (inside Admin) ───────────────────────────────────────────────
+function UsersTab(){
+  const[users,setUsers]=useState([]);
+  const[loading,setLoading]=useState(true);
+  const[showAdd,setShowAdd]=useState(false);
+  const[newUser,setNewUser]=useState({name:'',email:'',password:'',role:'rm',tl:'',city:'Pune'});
+  const[status,setStatus]=useState('');
+  const[userSearch,setUserSearch]=useState('');
+
+  const tls=ZONE.tls.map(t=>t.name);
+  const ROLES=[{v:'rm',l:'RM — Relationship Manager'},{v:'tl',l:'TL — Team Leader'},{v:'zonal',l:'Zonal Head'},{v:'admin',l:'Admin'}];
+
+  useEffect(()=>{
+    db.collection('users').get()
+      .then(snap=>{setUsers(snap.docs.map(d=>({id:d.id,...d.data()})));})
+      .catch(()=>setStatus('Could not load users'))
+      .finally(()=>setLoading(false));
+  },[]);
+
+  const addUser=async()=>{
+    if(!newUser.name.trim()||!newUser.email.trim()||newUser.password.length<6){
+      setStatus('Fill all fields. Password must be 6+ characters.');return;
+    }
+    setStatus('Creating account…');
+    try{
+      // Use secondary Firebase app instance so we don't log out the admin
+      const secondary=firebase.initializeApp(firebaseConfig,'_secondary_'+Date.now());
+      const secAuth=secondary.auth();
+      const cred=await secAuth.createUserWithEmailAndPassword(newUser.email.trim(),newUser.password);
+      const uid=cred.user.uid;
+      const userData={name:newUser.name.trim(),email:newUser.email.trim().toLowerCase(),role:newUser.role,
+        ...(newUser.role==='rm'||newUser.role==='tl'?{tl:newUser.tl,city:newUser.city}:{}),
+        createdAt:new Date().toISOString()};
+      await db.collection('users').doc(uid).set(userData);
+      await secAuth.signOut();
+      await secondary.delete();
+      setUsers(prev=>[...prev,{id:uid,...userData}]);
+      setNewUser({name:'',email:'',password:'',role:'rm',tl:'',city:'Pune'});
+      setShowAdd(false);
+      setStatus('✅ Account created! They can now log in at even-pay-routeplan.vercel.app');
+      setTimeout(()=>setStatus(''),6000);
+    }catch(e){
+      const msgs={'auth/email-already-in-use':'This email already has an account.','auth/invalid-email':'Invalid email address.','auth/weak-password':'Password too weak (6+ chars).'};
+      setStatus('❌ '+(msgs[e.code]||e.message));
+    }
+  };
+
+  const changeRole=async(uid,newRole)=>{
+    await db.collection('users').doc(uid).update({role:newRole});
+    setUsers(prev=>prev.map(u=>u.id===uid?{...u,role:newRole}:u));
+    setStatus('✅ Role updated');setTimeout(()=>setStatus(''),3000);
+  };
+
+  const removeUser=async(uid,name)=>{
+    if(!window.confirm(`Remove ${name}'s access? They won't be able to log in.`))return;
+    await db.collection('users').doc(uid).delete();
+    setUsers(prev=>prev.filter(u=>u.id!==uid));
+    setStatus('✅ Access removed');setTimeout(()=>setStatus(''),3000);
+  };
+
+  const inp=(val,set,ph,type='text')=><input value={val} onChange={e=>set(e.target.value)} placeholder={ph} type={type}
+    style={{width:'100%',padding:'9px 12px',border:`1.5px solid ${B.line}`,borderRadius:10,fontSize:13,outline:'none',boxSizing:'border-box'}}
+    onFocus={e=>e.target.style.borderColor=B.brand} onBlur={e=>e.target.style.borderColor=B.line}/>;
+
+  const selEl=(val,set,opts)=><select value={val} onChange={e=>set(e.target.value)}
+    style={{width:'100%',padding:'9px 12px',border:`1.5px solid ${B.line}`,borderRadius:10,fontSize:13,background:B.white,outline:'none',cursor:'pointer'}}>
+    {opts.map(o=>typeof o==='string'?<option key={o}>{o}</option>:<option key={o.v} value={o.v}>{o.l}</option>)}
+  </select>;
+
+  const filtered=users.filter(u=>!userSearch||u.name?.toLowerCase().includes(userSearch.toLowerCase())||u.email?.toLowerCase().includes(userSearch.toLowerCase()));
+  const roleColors={admin:'#4338CA',zonal:B.brand,tl:B.green,rm:B.muted};
+
+  return(
+    <div>
+      {/* Header */}
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14,flexWrap:'wrap',gap:10}}>
+        <div>
+          <div style={{fontSize:16,fontWeight:700,color:B.ink}}>👤 User Access Management</div>
+          <div style={{fontSize:12,color:B.muted,marginTop:2}}>Add team members so they can log in to the app</div>
+        </div>
+        <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
+          {status&&<span style={{fontSize:13,color:status.includes('✅')?B.green:status.includes('❌')?B.red:B.muted,fontWeight:600,maxWidth:300}}>{status}</span>}
+          <button onClick={()=>setShowAdd(!showAdd)}
+            style={{padding:'9px 18px',background:B.brand,color:'#fff',border:'none',borderRadius:10,fontSize:13,fontWeight:700,cursor:'pointer'}}>
+            + Add Team Member
+          </button>
+        </div>
+      </div>
+
+      {/* Add user form */}
+      {showAdd&&<Card style={{marginBottom:16,borderLeft:`4px solid ${B.brand}`}}>
+        <div style={{fontWeight:700,fontSize:14,color:B.brand,marginBottom:14}}>Add New Team Member</div>
+        <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(180px,1fr))',gap:10,marginBottom:14}}>
+          <div>
+            <div style={{fontSize:11,color:B.muted,marginBottom:4,fontWeight:600,textTransform:'uppercase'}}>Full Name *</div>
+            {inp(newUser.name,v=>setNewUser({...newUser,name:v}),'e.g. Rohan Sharma')}
+          </div>
+          <div>
+            <div style={{fontSize:11,color:B.muted,marginBottom:4,fontWeight:600,textTransform:'uppercase'}}>Work Email *</div>
+            {inp(newUser.email,v=>setNewUser({...newUser,email:v}),'rohan@even.in','email')}
+          </div>
+          <div>
+            <div style={{fontSize:11,color:B.muted,marginBottom:4,fontWeight:600,textTransform:'uppercase'}}>Password * (6+ chars)</div>
+            {inp(newUser.password,v=>setNewUser({...newUser,password:v}),'Set their password','password')}
+          </div>
+          <div>
+            <div style={{fontSize:11,color:B.muted,marginBottom:4,fontWeight:600,textTransform:'uppercase'}}>Role *</div>
+            {selEl(newUser.role,v=>setNewUser({...newUser,role:v}),ROLES)}
+          </div>
+          {(newUser.role==='rm'||newUser.role==='tl')&&<>
+            <div>
+              <div style={{fontSize:11,color:B.muted,marginBottom:4,fontWeight:600,textTransform:'uppercase'}}>Their TL</div>
+              {selEl(newUser.tl,v=>setNewUser({...newUser,tl:v}),[{v:'',l:'Select TL…'},...tls])}
+            </div>
+            <div>
+              <div style={{fontSize:11,color:B.muted,marginBottom:4,fontWeight:600,textTransform:'uppercase'}}>City</div>
+              {selEl(newUser.city,v=>setNewUser({...newUser,city:v}),['Pune','Mumbai','Nagpur'])}
+            </div>
+          </>}
+        </div>
+        <div style={{background:B.amberBg,border:`1px solid ${B.amber}`,borderRadius:8,padding:'8px 12px',marginBottom:12,fontSize:12,color:B.amber}}>
+          ⚠️ Share the email and password with the team member. They can change their password after logging in.
+        </div>
+        <div style={{display:'flex',gap:8}}>
+          <button onClick={addUser} style={{padding:'9px 20px',background:B.brand,color:'#fff',border:'none',borderRadius:10,fontSize:13,fontWeight:700,cursor:'pointer'}}>✓ Create Account</button>
+          <button onClick={()=>setShowAdd(false)} style={{padding:'9px 16px',background:B.bg,color:B.muted,border:`1px solid ${B.line}`,borderRadius:10,fontSize:13,cursor:'pointer'}}>Cancel</button>
+        </div>
+      </Card>}
+
+      {/* Search */}
+      <input value={userSearch} onChange={e=>setUserSearch(e.target.value)} placeholder="🔍 Search by name or email…"
+        style={{width:'100%',maxWidth:320,padding:'9px 12px',border:`1.5px solid ${B.line}`,borderRadius:10,fontSize:13,outline:'none',marginBottom:12,boxSizing:'border-box'}}
+        onFocus={e=>e.target.style.borderColor=B.brand} onBlur={e=>e.target.style.borderColor=B.line}/>
+
+      {/* Users table */}
+      {loading?<div style={{padding:40,textAlign:'center',color:B.muted}}>Loading users…</div>:
+      <div className="tbl-wrap">
+        <table className="dt">
+          <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>TL</th><th>City</th><th>Added</th><th>Change Role</th><th>Action</th></tr></thead>
+          <tbody>
+            {filtered.length===0&&<tr><td colSpan={8} style={{textAlign:'center',color:B.muted,padding:30}}>No users found</td></tr>}
+            {filtered.map((u,i)=>(
+              <tr key={i}>
+                <td><strong>{u.name||'—'}</strong></td>
+                <td style={{color:B.muted}}>{u.email}</td>
+                <td>
+                  <span style={{background:roleColors[u.role]+'18',color:roleColors[u.role]||B.muted,padding:'3px 10px',borderRadius:10,fontSize:11,fontWeight:700,textTransform:'uppercase'}}>
+                    {u.role}
+                  </span>
+                </td>
+                <td>{u.tl||'—'}</td>
+                <td>{u.city||'—'}</td>
+                <td style={{color:B.muted,fontSize:11}}>{u.createdAt?new Date(u.createdAt).toLocaleDateString('en-IN'):'—'}</td>
+                <td>
+                  <select value={u.role} onChange={e=>changeRole(u.id,e.target.value)}
+                    style={{padding:'5px 8px',border:`1.5px solid ${B.line}`,borderRadius:8,fontSize:12,background:B.white,outline:'none',cursor:'pointer'}}>
+                    {ROLES.map(r=><option key={r.v} value={r.v}>{r.l.split('—')[0].trim()}</option>)}
+                  </select>
+                </td>
+                <td>
+                  <button onClick={()=>removeUser(u.id,u.name)}
+                    style={{padding:'5px 10px',background:B.redBg,color:B.red,border:'none',borderRadius:8,fontSize:12,fontWeight:600,cursor:'pointer'}}>
+                    🗑️ Remove
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>}
+      <div style={{fontSize:12,color:B.muted,marginTop:10}}>{filtered.length} user{filtered.length!==1?'s':''} with app access</div>
+
+      {/* Reports section */}
+      <div style={{marginTop:28}}>
+        <div style={{fontSize:14,fontWeight:700,color:B.ink,marginBottom:10}}>📊 Download Reports</div>
+        <div style={{display:'flex',gap:10,flexWrap:'wrap'}}>
+          {[
+            {label:'All Targets CSV',fn:()=>downloadCSV(['TL','RM','City','Target','Achieved','Target %'],Object.values(loadStore()).map(e=>[e.tl,e.rm,e.city||'',e.target||0,e.achieved||0,pct(e.netAchieved||0,e.target||0)+'%']),'targets.csv')},
+            {label:'City Summary CSV',fn:()=>downloadCSV(['City','RMs','Target','Achieved','Target %'],ZONE.cities.map(c=>[c.name,c.rms,c.target,c.achieved,pct(c.achieved,c.target)+'%']),'city_summary.csv')},
+            {label:'TL Summary CSV',fn:()=>downloadCSV(['TL','City','RMs','Target','Achieved','Target %'],ZONE.tls.map(t=>[t.name,t.city,t.rms,t.target,t.achieved,pct(t.achieved,t.target)+'%']),'tl_summary.csv')},
+            {label:'RM Individual CSV',fn:()=>downloadCSV(['TL','RM','City','Target','Achieved','Target %','Monthly Tgt','Monthly Achv'],ALL_RMS.map(r=>[r.tl,r.rm,r.city,r.target,r.achieved,pct(r.achieved,r.target)+'%',r.monthlyTgt,r.monthlyAchv]),'rm_individual.csv')},
+          ].map(({label,fn})=>(
+            <button key={label} onClick={fn}
+              style={{padding:'10px 18px',background:B.white,color:B.navy,border:`1.5px solid ${B.navy}`,borderRadius:10,fontSize:13,fontWeight:600,cursor:'pointer'}}>
+              ↓ {label}
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── ADMIN PANEL ────────────────────────────────────────────────────────────
 function AdminPanel(){
   const isMobile=useIsMobile();
@@ -1313,22 +1506,9 @@ function AdminPanel(){
           <div style={{fontSize:12,color:B.muted,marginTop:10}}>Showing {filteredClinics.length} of {workingClinics.length} clinics</div>
         </div>}
 
-        {/* ── SETTINGS TAB ── */}
-        {adminTab==='settings'&&<div>
-          {[
-            {icon:'📂',title:'Upload Leads CSV',sub:'Refresh clinic data from Even Pay source sheet',color:B.brand},
-            {icon:'🔗',title:'Connect Google Sheets',sub:'Auto-sync leads, payments and targets (Apps Script)',color:B.green},
-            {icon:'🔔',title:'Send Notifications',sub:'Alert RMs and TLs about important updates',color:'#DB2777'},
-            {icon:'🔒',title:'Manage User Access',sub:'Add/remove user accounts and set roles',color:'#0891B2'},
-            {icon:'📊',title:'Download Full Report',sub:'Export complete zonal report as Excel (all 4 sheets)',color:B.navy},
-          ].map((item,i)=>(
-            <Card key={i} style={{marginBottom:10,display:'flex',alignItems:'center',gap:14,cursor:'pointer'}}>
-              <div style={{width:46,height:46,background:item.color+'18',borderRadius:14,display:'flex',alignItems:'center',justifyContent:'center',fontSize:22,flexShrink:0}}>{item.icon}</div>
-              <div style={{flex:1}}><div style={{fontWeight:700,fontSize:14}}>{item.title}</div><div style={{fontSize:12,color:B.muted,marginTop:2}}>{item.sub}</div></div>
-              <div style={{color:B.line,fontSize:20}}>›</div>
-            </Card>
-          ))}
-        </div>}
+        {/* ── USERS TAB ── */}
+        {adminTab==='settings'&&<UsersTab/>}
+
 
       </div>
     </div>
