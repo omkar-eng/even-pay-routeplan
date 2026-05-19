@@ -270,53 +270,53 @@ const ZONE={
 
 const ALL_RMS=[
   {rm:'Ayush Kamble',tl:'Akshay',city:'Pune',target:320000,achieved:108000,refund:0,monthlyTgt:200,monthlyAchv:186,dailyTgt:8,dailyAchv:0,renewalTgt:20,renewalAchv:17,leads:245,clinics:[
-    {name:'MEDISURE Health Clinic',locality:'Hinjewadi',leads:286,status:'Declining',freq:'Daily',slot:'11:00–12:00'},
-    {name:'Goodfaith Healthcare',locality:'Hinjewadi',leads:95,status:'Declining',freq:'Daily',slot:'12:00–1:15'},
-    {name:'TINY BLISS Child Care',locality:'Hinjewadi',leads:112,status:'Declining',freq:'Daily',slot:'3:00–4:30'},
-    {name:'AYODH Child Care',locality:'Wakad',leads:46,status:'Stable',freq:'Tri-weekly',slot:'4:30–5:30'},
+    {name:'MEDISURE Health Clinic',locality:'Hinjewadi',leads:286,status:'Declining',freq:'Daily',slot:'11:00–12:00',reason:'Highest-lead clinic in territory; daily presence needed to stem decline.'},
+    {name:'Goodfaith Healthcare',locality:'Hinjewadi',leads:95,status:'Declining',freq:'Daily',slot:'12:00–1:15',reason:'Same Hinjewadi lane as MEDISURE — bundle into morning route.'},
+    {name:'TINY BLISS Child Care',locality:'Hinjewadi',leads:112,status:'Declining',freq:'Daily',slot:'3:00–4:30',reason:'Child health segment declining — afternoon retention window with high re-engagement potential.'},
+    {name:'AYODH Child Care',locality:'Wakad',leads:46,status:'Stable',freq:'Tri-weekly',slot:'4:30–5:30',reason:'Stable Wakad clinic; tri-weekly to maintain relationship without over-investing.'},
   ]},
   {rm:'Ajinkya Thorat',tl:'Akshay',city:'Pune',target:290000,achieved:72000,refund:0,monthlyTgt:180,monthlyAchv:130,dailyTgt:7,dailyAchv:0,renewalTgt:15,renewalAchv:9,leads:203,clinics:[
-    {name:'Dr. Prasad ENT Hospital',locality:'Spine Road',leads:203,status:'Declining',freq:'Daily',slot:'11:00–1:30'},
-    {name:'Marathe Children & Dental',locality:'Spine Road',leads:120,status:'Declining',freq:'Daily',slot:'11:00–1:30'},
-    {name:'Elegance Skin Clinic',locality:'Ajmera',leads:71,status:'Declining',freq:'Tri-weekly',slot:'3:30–5:30'},
+    {name:'Dr. Prasad ENT Hospital',locality:'Spine Road',leads:203,status:'Declining',freq:'Daily',slot:'11:00–1:30',reason:'Largest clinic in territory (203 leads), declining hard — daily retention priority. Last lead 25-Apr by Ajinkya.'},
+    {name:'Marathe Children & Dental',locality:'Spine Road',leads:120,status:'Declining',freq:'Daily',slot:'11:00–1:30',reason:'Same Spine Road lane — club into daily route.'},
+    {name:'Elegance Skin Clinic',locality:'Ajmera',leads:71,status:'Declining',freq:'Tri-weekly',slot:'3:30–5:30',reason:'Declining; afternoon detour after Spine Road loop.'},
   ]},
   {rm:'Hemant Pantmallu',tl:'Akshay',city:'Pune',target:310000,achieved:91000,refund:0,monthlyTgt:160,monthlyAchv:155,dailyTgt:6,dailyAchv:0,renewalTgt:18,renewalAchv:16,leads:180,clinics:[
-    {name:'Saideep ENT Hospital',locality:'Sangavi',leads:146,status:'Declining',freq:'Daily',slot:'11:00–12:00'},
-    {name:'More Children Clinic',locality:'Sangavi',leads:92,status:'Declining',freq:'Daily',slot:'12:00–1:00'},
-    {name:'Ayansh Child Care',locality:'Rahatani',leads:58,status:'Declining',freq:'Daily',slot:'1:00–2:00'},
+    {name:'Saideep ENT Hospital',locality:'Sangavi',leads:146,status:'Declining',freq:'Daily',slot:'11:00–12:00',reason:'Key Sangavi clinic declining — daily visit to arrest the lead drop.'},
+    {name:'More Children Clinic',locality:'Sangavi',leads:92,status:'Declining',freq:'Daily',slot:'12:00–1:00',reason:'Same Sangavi block as Saideep — back-to-back morning slot for efficiency.'},
+    {name:'Ayansh Child Care',locality:'Rahatani',leads:58,status:'Declining',freq:'Daily',slot:'1:00–2:00',reason:'Bridge clinic in Rahatani; daily to maintain pipeline while declining.'},
   ]},
   {rm:'Ketan Pawar',tl:'Mayur',city:'Pune',target:290000,achieved:104655,refund:0,monthlyTgt:200,monthlyAchv:0,dailyTgt:10,dailyAchv:0,renewalTgt:22,renewalAchv:18,leads:210,clinics:[
-    {name:'Dr Dudhbhate Netralay',locality:'Sinhgad Rd',leads:126,status:'Declining',freq:'Daily',slot:'11:00–12:00'},
-    {name:'Dr Sushrut Kajale',locality:'Bharti Vidyapeeth',leads:94,status:'Growing',freq:'Daily',slot:'1:00–2:00'},
-    {name:'Dr Somesh Kawade',locality:'Narhe',leads:177,status:'Stable',freq:'Tri-weekly',slot:'3:00–5:00'},
+    {name:'Dr Dudhbhate Netralay',locality:'Sinhgad Rd',leads:126,status:'Declining',freq:'Daily',slot:'11:00–12:00',reason:'Highest-lead clinic on Sinhgad Rd — declining, daily visit critical to prevent further drop.'},
+    {name:'Dr Sushrut Kajale',locality:'Bharti Vidyapeeth',leads:94,status:'Growing',freq:'Daily',slot:'1:00–2:00',reason:'Growing clinic — daily to sustain momentum and deepen engagement.'},
+    {name:'Dr Somesh Kawade',locality:'Narhe',leads:177,status:'Stable',freq:'Tri-weekly',slot:'3:00–5:00',reason:'Stable high-volume clinic in Narhe; tri-weekly sufficient to maintain lead flow.'},
   ]},
   {rm:'Krishna Salunkhe',tl:'Mayur',city:'Pune',target:315000,achieved:32093,refund:0,monthlyTgt:200,monthlyAchv:0,dailyTgt:10,dailyAchv:0,renewalTgt:18,renewalAchv:8,leads:163,clinics:[
-    {name:'Navjeevan Children Clinic',locality:'Dhayri',leads:82,status:'Stable',freq:'Daily',slot:'11:00–12:30'},
-    {name:'Prisha ENT Clinic',locality:'Indiranagar',leads:42,status:'Growing',freq:'Tri-weekly',slot:'3:30–5:00'},
+    {name:'Navjeevan Children Clinic',locality:'Dhayri',leads:82,status:'Stable',freq:'Daily',slot:'11:00–12:30',reason:'Stable Dhayri clinic — daily visit to deepen referral relationship.'},
+    {name:'Prisha ENT Clinic',locality:'Indiranagar',leads:42,status:'Growing',freq:'Tri-weekly',slot:'3:30–5:00',reason:'Growing Indiranagar clinic with strong conversion potential — tri-weekly to nurture leads.'},
   ]},
   {rm:'Vishnu Maruti Waghmare',tl:'Mayur',city:'Pune',target:250000,achieved:74925,refund:0,monthlyTgt:200,monthlyAchv:0,dailyTgt:10,dailyAchv:0,renewalTgt:15,renewalAchv:5,leads:120,clinics:[
-    {name:'Dr Bharat Patel Clinic',locality:'Camp',leads:2,status:'Growing',freq:'Bi-weekly',slot:'5:00–6:30'},
+    {name:'Dr Bharat Patel Clinic',locality:'Camp',leads:2,status:'Growing',freq:'Bi-weekly',slot:'5:00–6:30',reason:'Early-stage growing clinic in Camp — bi-weekly for relationship-building and lead development.'},
   ]},
   {rm:'Yalaling',tl:'Mayur',city:'Pune',target:175000,achieved:145498,refund:0,monthlyTgt:200,monthlyAchv:0,dailyTgt:10,dailyAchv:0,renewalTgt:12,renewalAchv:12,leads:95,clinics:[
-    {name:'Priority Children Clinic',locality:'Kothrud',leads:104,status:'Stable',freq:'Tri-weekly',slot:'11:30–1:30'},
+    {name:'Priority Children Clinic',locality:'Kothrud',leads:104,status:'Stable',freq:'Tri-weekly',slot:'11:30–1:30',reason:'Stable Kothrud clinic with consistent lead flow — tri-weekly maintenance to preserve relationship.'},
   ]},
   {rm:'Sumit Lal',tl:'Naveen',city:'Mumbai',target:285000,achieved:71000,refund:0,monthlyTgt:180,monthlyAchv:0,dailyTgt:8,dailyAchv:0,renewalTgt:18,renewalAchv:14,leads:155,clinics:[
-    {name:'Aastha Eye Clinic',locality:'Mira Road',leads:134,status:'Declining',freq:'Daily',slot:'11:00–12:30'},
-    {name:"Vibgyor Children's",locality:'Mira Road',leads:9,status:'Growing',freq:'Tri-weekly',slot:'3:30–4:30'},
+    {name:'Aastha Eye Clinic',locality:'Mira Road',leads:134,status:'Declining',freq:'Daily',slot:'11:00–12:30',reason:'High-lead declining clinic in Mira Road — daily visits critical to arrest the decline.'},
+    {name:"Vibgyor Children's",locality:'Mira Road',leads:9,status:'Growing',freq:'Tri-weekly',slot:'3:30–4:30',reason:'Growing niche clinic in Mira Road — tri-weekly to nurture early-stage leads.'},
   ]},
   {rm:'Rishabh Patel',tl:'Seema',city:'Mumbai',target:280000,achieved:75000,refund:0,monthlyTgt:160,monthlyAchv:0,dailyTgt:7,dailyAchv:0,renewalTgt:16,renewalAchv:12,leads:148,clinics:[
-    {name:'Mauli Clinic',locality:'Thane',leads:148,status:'Stable',freq:'Tri-weekly',slot:'11:30–1:30'},
+    {name:'Mauli Clinic',locality:'Thane',leads:148,status:'Stable',freq:'Tri-weekly',slot:'11:30–1:30',reason:'Stable Thane clinic — tri-weekly to maintain engagement without over-visiting.'},
   ]},
   {rm:'Abhishek Salte',tl:'Seema',city:'Mumbai',target:290000,achieved:82000,refund:0,monthlyTgt:160,monthlyAchv:0,dailyTgt:7,dailyAchv:0,renewalTgt:16,renewalAchv:10,leads:108,clinics:[
-    {name:'Dr. Rajshekhar Sinhasan',locality:'Tilak Nagar',leads:46,status:'Growing',freq:'Tri-weekly',slot:'11:30–1:00'},
-    {name:'Care 4 Diabetes Mulund',locality:'Mulund',leads:39,status:'Growing',freq:'Tri-weekly',slot:'3:30–5:00'},
+    {name:'Dr. Rajshekhar Sinhasan',locality:'Tilak Nagar',leads:46,status:'Growing',freq:'Tri-weekly',slot:'11:30–1:00',reason:'Growing Tilak Nagar clinic — tri-weekly to sustain trajectory and deepen referral pipeline.'},
+    {name:'Care 4 Diabetes Mulund',locality:'Mulund',leads:39,status:'Growing',freq:'Tri-weekly',slot:'3:30–5:00',reason:'Growing diabetes segment in Mulund — strong LTV potential given chronic care population.'},
   ]},
   {rm:'Jacky baswal',tl:'Himanshu',city:'Mumbai',target:350000,achieved:0,refund:0,monthlyTgt:100,monthlyAchv:0,dailyTgt:4,dailyAchv:0,renewalTgt:5,renewalAchv:5,leads:137,clinics:[
-    {name:'Dr Manoj Duleray Mehta',locality:'Parel',leads:39,status:'Stable',freq:'Tri-weekly',slot:'11:30–1:00'},
-    {name:'Sattva Pediatric',locality:'Parel',leads:28,status:'Growing',freq:'Tri-weekly',slot:'1:00–2:00'},
+    {name:'Dr Manoj Duleray Mehta',locality:'Parel',leads:39,status:'Stable',freq:'Tri-weekly',slot:'11:30–1:00',reason:'Stable Parel clinic — tri-weekly relationship maintenance to sustain current lead levels.'},
+    {name:'Sattva Pediatric',locality:'Parel',leads:28,status:'Growing',freq:'Tri-weekly',slot:'1:00–2:00',reason:'Growing Parel pediatric — tri-weekly to build on early traction and expand referral base.'},
   ]},
   {rm:'Santosh Pawar',tl:'Akshay',city:'Pune',target:280000,achieved:161000,refund:0,monthlyTgt:180,monthlyAchv:0,dailyTgt:7,dailyAchv:0,renewalTgt:15,renewalAchv:15,leads:131,clinics:[
-    {name:'Niragas Child Clinic',locality:'Bhosari',leads:73,status:'Growing',freq:'Tri-weekly',slot:'11:30–1:30'},
+    {name:'Niragas Child Clinic',locality:'Bhosari',leads:73,status:'Growing',freq:'Tri-weekly',slot:'11:30–1:30',reason:'Growing Bhosari clinic — tri-weekly to sustain trajectory; evaluate upgrade if leads exceed 100.'},
   ]},
 ];
 
@@ -719,7 +719,7 @@ function RoutePlanPanel({user}){
   const[tlF,setTlF]=useState('All');
   const[search,setSearch]=useState('');
   const[notes,setNotes]=useState({..._clinicNotes});
-  const[editingNote,setEditingNote]=useState(null); // {key,text,rmName,clinicName}
+  const[editingNote,setEditingNote]=useState(null);
   const[statuses,setStatuses]=useState({...(_cache.clinic_statuses||{})});
   const[liveLeads,setLiveLeads]=useState({...(_cache.live_leads||{})});
   const[syncing,setSyncing]=useState(false);
@@ -766,6 +766,20 @@ function RoutePlanPanel({user}){
     await updateClinicStatus(rmName,clinicName,newStatus,oldStatus);
   };
 
+  const handleShare=(r)=>{
+    const cluster=[...new Set(r.clinics.map(c=>c.locality))].join(' · ');
+    const lines=[`*Route Plan — ${r.rm}*`,`TL: ${r.tl} | City: ${r.city} | Cluster: ${cluster}`,``];
+    r.clinics.forEach(c=>{
+      const leads=getLeads(r.rm,c.name)??c.leads;
+      const status=getStatus(r.rm,c.name,c.status);
+      lines.push(`*${c.name}* (${c.locality})`);
+      lines.push(`Leads: ${leads} | ${status} | ${c.freq} | ${c.slot}`);
+      if(c.reason)lines.push(c.reason);
+      lines.push(``);
+    });
+    window.open('https://wa.me/?text='+encodeURIComponent(lines.join('\n')),'_blank');
+  };
+
   const lastSync=_cache.route_settings?.lastSynced;
   const lastSyncStr=lastSync?new Date(lastSync).toLocaleString('en-IN',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}):'Never synced';
 
@@ -776,117 +790,179 @@ function RoutePlanPanel({user}){
     return true;
   });
 
+  const totalClinics=filtered.reduce((s,r)=>s+r.clinics.length,0);
+  const cityLabel=cityF!=='All'?cityF:'All Cities';
+
+  const fmtSlot=(slot)=>{
+    if(!slot)return '—';
+    const m=slot.match(/^(\d+:\d+)\s*[–—]\s*(\d+:\d+)$/);
+    if(!m)return slot;
+    const fmtTime=(t)=>{
+      const[h,min]=t.split(':').map(Number);
+      const suffix=(h>=9&&h<=11)?'AM':'PM';
+      return `${h}:${min.toString().padStart(2,'0')} ${suffix}`;
+    };
+    return `${fmtTime(m[1])} – ${fmtTime(m[2])}`;
+  };
+
+  const renderDays=(freq)=>{
+    const map={'Daily':['Mon','Tue','Wed','Thu','Fri','Sat'],'Tri-weekly':['Mon','Wed','Fri'],'Bi-weekly':['Mon','Thu']};
+    const days=map[freq]||[];
+    if(!days.length)return <span style={{color:B.muted,fontSize:11}}>—</span>;
+    const allDays=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+    const isRange=days.length>2&&days.every((d,i)=>i===0||allDays.indexOf(d)===allDays.indexOf(days[i-1])+1);
+    if(isRange)return <span style={{background:'#F1F5F9',color:B.ink,padding:'3px 8px',borderRadius:6,fontSize:11,fontWeight:500}}>{days[0]}–{days[days.length-1]}</span>;
+    return <>{days.map(d=><span key={d} style={{background:'#F1F5F9',color:B.ink,padding:'3px 7px',borderRadius:6,fontSize:11,fontWeight:500,marginRight:3}}>{d}</span>)}</>;
+  };
+
+  const freqStyle=(freq)=>{
+    const c={Daily:{b:'#7B1D1D',t:'#7B1D1D'},'Tri-weekly':{b:'#5B21B6',t:'#5B21B6'},'Bi-weekly':{b:'#0E7490',t:'#0E7490'}}[freq]||{b:B.muted,t:B.muted};
+    return{border:`1.5px solid ${c.b}`,color:c.t,background:'transparent',padding:'3px 10px',borderRadius:6,fontSize:11,fontWeight:600,whiteSpace:'nowrap',display:'inline-block'};
+  };
+
+  const ss=(status)=>{
+    const m={Growing:{bg:B.greenBg,c:B.green},Stable:{bg:B.blueBg,c:B.blue2},Declining:{bg:B.redBg,c:B.red}}[status]||{bg:'#F1F5F9',c:B.muted};
+    return m;
+  };
+
   return(
-    <div style={{background:B.bg,minHeight:'100vh',paddingBottom:isMobile?80:20,paddingTop:isMobile?0:60}}>
-      <div style={{background:`linear-gradient(135deg,${B.brandDark},${B.brand})`,padding:'22px 18px 16px',borderRadius:isMobile?'0 0 28px 28px':'0 0 0 0'}}>
-        <div style={{color:'rgba(255,255,255,.65)',fontSize:12}}>Zone-Wide</div>
-        <div style={{color:'#fff',fontSize:21,fontWeight:800,marginTop:2}}>Route Plan</div>
-        <div style={{color:'rgba(255,255,255,.55)',fontSize:11,marginTop:2}}>{ALL_RMS.length} RMs · {ALL_RMS.reduce((s,r)=>s+r.clinics.length,0)} clinics</div>
-        <div style={{display:'flex',gap:10,marginTop:12,alignItems:'center',flexWrap:'wrap'}}>
-          <button onClick={handleSync} disabled={syncing}
-            style={{background:'rgba(255,255,255,.2)',border:'none',color:'#fff',borderRadius:8,padding:'6px 14px',fontSize:12,fontWeight:600,cursor:syncing?'default':'pointer',opacity:syncing?.7:1}}>
-            {syncing?'Syncing…':'↻ Sync Leads from Sheet'}
-          </button>
-          <span style={{color:'rgba(255,255,255,.5)',fontSize:11}}>Last sync: {lastSyncStr}</span>
-          {syncMsg&&<span style={{color:'rgba(255,255,255,.9)',fontSize:11,fontWeight:600,background:'rgba(0,0,0,.2)',padding:'2px 8px',borderRadius:6}}>{syncMsg}</span>}
+    <div style={{background:'#F8F9FB',minHeight:'100vh',paddingBottom:isMobile?80:20}}>
+      <div style={{background:B.white,borderBottom:`1px solid ${B.line}`,padding:'20px 20px 14px'}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:12,marginBottom:10}}>
+          <div style={{display:'flex',alignItems:'center',gap:12}}>
+            <div style={{fontSize:26,fontWeight:800,color:B.ink}}>{cityLabel}</div>
+            <span style={{background:B.brandLight,color:B.brand,padding:'4px 12px',borderRadius:20,fontSize:11,fontWeight:700,letterSpacing:'.3px'}}>
+              {filtered.length} RMS · {totalClinics} CLINICS
+            </span>
+          </div>
+          <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
+            <button onClick={handleSync} disabled={syncing}
+              style={{background:syncing?B.line:B.brand,border:'none',color:'#fff',borderRadius:8,padding:'7px 14px',fontSize:12,fontWeight:600,cursor:syncing?'default':'pointer'}}>
+              {syncing?'Syncing…':'↻ Sync Leads'}
+            </button>
+            <span style={{color:B.muted,fontSize:11}}>Last sync: {lastSyncStr}</span>
+          </div>
+        </div>
+        {syncMsg&&<div style={{fontSize:12,color:B.green,fontWeight:600,marginBottom:8}}>{syncMsg}</div>}
+        <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+          <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search RM or clinic..."
+            style={{flex:1,minWidth:140,padding:'7px 12px',border:`1.5px solid ${B.line}`,borderRadius:8,fontSize:13,outline:'none'}}/>
+          {[['City',['All','Pune','Mumbai','Nagpur'],cityF,setCityF],['TL',tls,tlF,setTlF]].map(([l,opts,v,s])=>(
+            <select key={l} value={v} onChange={e=>s(e.target.value)} style={{padding:'7px 10px',border:`1.5px solid ${B.line}`,borderRadius:8,fontSize:12,fontWeight:600,background:B.white,outline:'none',cursor:'pointer'}}>
+              {opts.map(o=><option key={o}>{o}</option>)}
+            </select>
+          ))}
         </div>
       </div>
 
-      <div style={{background:B.white,borderBottom:`1px solid ${B.line}`,padding:'12px 16px',display:'flex',gap:8,flexWrap:'wrap'}}>
-        <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search RM or clinic..."
-          style={{flex:1,minWidth:140,padding:'8px 12px',border:`1.5px solid ${B.line}`,borderRadius:10,fontSize:13,outline:'none'}}/>
-        {[['City',['All','Pune','Mumbai','Nagpur'],cityF,setCityF],['TL',tls,tlF,setTlF]].map(([l,opts,v,s])=>(
-          <select key={l} value={v} onChange={e=>s(e.target.value)} style={{padding:'8px 10px',border:`1.5px solid ${B.line}`,borderRadius:10,fontSize:12,fontWeight:600,background:B.white,outline:'none',cursor:'pointer'}}>
-            {opts.map(o=><option key={o}>{o}</option>)}
-          </select>
-        ))}
-      </div>
-
-      <div style={{padding:'14px 16px'}}>
+      <div style={{padding:'16px 20px'}}>
+        {filtered.length===0&&(
+          <div style={{textAlign:'center',padding:'48px 20px',color:B.muted}}>
+            <div style={{fontSize:32,marginBottom:8}}>🗺️</div>
+            <div style={{fontSize:14,fontWeight:600}}>No RMs match your filters</div>
+          </div>
+        )}
         {filtered.map((r,i)=>{
-          const rmLeads=r.clinics.reduce((s,c)=>{const l=getLeads(r.rm,c.name);return s+(l!==null?l:c.leads);},0);
+          const cluster=[...new Set(r.clinics.map(c=>c.locality))].join(' · ');
           return(
-            <Card key={i} style={{marginBottom:14}}>
-              <div style={{background:`linear-gradient(135deg,${B.brand},${B.brandMid})`,margin:'-14px -16px 12px',padding:'12px 16px',borderRadius:'16px 16px 0 0',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-                <div><div style={{color:'#fff',fontWeight:700,fontSize:14}}>{r.rm}</div><div style={{color:'rgba(255,255,255,.65)',fontSize:11,marginTop:2}}>TL: {r.tl} · {r.city}</div></div>
-                <div style={{background:'rgba(255,255,255,.2)',borderRadius:10,padding:'4px 10px',textAlign:'center'}}>
-                  <div style={{color:'#fff',fontWeight:800,fontSize:16}}>{rmLeads}</div>
-                  <div style={{color:'rgba(255,255,255,.65)',fontSize:9,textTransform:'uppercase'}}>Leads</div>
-                </div>
-              </div>
-
-              {r.clinics.map((c,j)=>{
-                const cKey=clinicKey(r.rm,c.name);
-                const cStatus=getStatus(r.rm,c.name,c.status);
-                const cLeads=getLeads(r.rm,c.name);
-                const displayLeads=cLeads!==null?cLeads:c.leads;
-                const isEditingThisNote=editingNote&&editingNote.key===cKey;
-                const note=notes[cKey];
-                const statusColor=cStatus==='Declining'?B.red:cStatus==='Growing'?B.green:B.blue2;
-
-                return(
-                  <div key={j} style={{padding:'10px 0',borderBottom:j<r.clinics.length-1?`1px solid ${B.line}`:'none'}}>
-                    <div style={{display:'flex',alignItems:'flex-start',gap:10}}>
-                      <div style={{width:4,borderRadius:2,background:statusColor,flexShrink:0,alignSelf:'stretch',minHeight:36}}/>
-                      <div style={{flex:1,minWidth:0}}>
-                        <div style={{fontWeight:600,fontSize:12,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{c.name}</div>
-                        <div style={{display:'flex',gap:5,marginTop:4,flexWrap:'wrap',alignItems:'center'}}>
-                          <span style={{background:B.brandLight,color:B.brand,padding:'1px 6px',borderRadius:4,fontSize:9,fontWeight:700}}>{c.slot}</span>
-                          <span style={{background:'#f1f5f9',color:B.muted,padding:'1px 6px',borderRadius:4,fontSize:9}}>{c.freq}</span>
-                          {canEdit?(
-                            <select value={cStatus} onChange={e=>handleStatusChange(r.rm,c.name,e.target.value,cStatus)}
-                              style={{padding:'1px 6px',border:`1px solid ${B.line}`,borderRadius:4,fontSize:9,background:B.white,outline:'none',cursor:'pointer',fontWeight:600,color:statusColor}}>
-                              {['Growing','Stable','Declining'].map(s=><option key={s}>{s}</option>)}
-                            </select>
-                          ):(
-                            <SBadge status={cStatus}/>
-                          )}
-                        </div>
-                      </div>
-                      <div style={{textAlign:'right',flexShrink:0,display:'flex',flexDirection:'column',alignItems:'flex-end',gap:4}}>
-                        <div>
-                          <div style={{fontWeight:800,fontSize:15,color:B.brand}}>{displayLeads}</div>
-                          {cLeads!==null&&cLeads!==c.leads&&<div style={{fontSize:9,color:B.muted,textDecoration:'line-through',textAlign:'right'}}>{c.leads}</div>}
-                        </div>
-                        {canEdit&&(
-                          <button onClick={()=>setEditingNote(isEditingThisNote?null:{key:cKey,text:note?.note||'',rmName:r.rm,clinicName:c.name})}
-                            style={{background:note?B.amberBg:B.brandLight,border:'none',color:note?B.amber:B.brand,borderRadius:6,padding:'2px 8px',fontSize:9,cursor:'pointer',fontWeight:700}}>
-                            {note?'Edit Note':'+ Note'}
-                          </button>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Note display (visible to all) */}
-                    {note&&!isEditingThisNote&&(
-                      <div style={{background:'#fffbea',border:`1px solid #fde68a`,borderRadius:8,padding:'8px 10px',marginTop:8,marginLeft:14}}>
-                        <div style={{fontSize:10,color:B.amber,fontWeight:700,marginBottom:3}}>NOTE FROM {note.tlName?.toUpperCase()}</div>
-                        <div style={{fontSize:12,color:B.ink,lineHeight:1.5}}>{note.note}</div>
-                      </div>
-                    )}
-
-                    {/* Note editor (TL / admin only) */}
-                    {isEditingThisNote&&(
-                      <div style={{background:B.brandLight,borderRadius:10,padding:'10px',marginTop:8,marginLeft:14}}>
-                        <textarea value={editingNote.text} onChange={e=>setEditingNote({...editingNote,text:e.target.value})}
-                          placeholder="Write a note for the RM about this clinic…"
-                          style={{width:'100%',padding:'8px 10px',border:`1.5px solid ${B.brand}`,borderRadius:8,fontSize:12,resize:'vertical',minHeight:64,outline:'none',boxSizing:'border-box',fontFamily:'inherit',lineHeight:1.5}}/>
-                        <div style={{display:'flex',gap:6,marginTop:8}}>
-                          <button onClick={handleSaveNote}
-                            style={{padding:'6px 16px',background:B.brand,color:'#fff',border:'none',borderRadius:8,fontSize:12,fontWeight:700,cursor:'pointer'}}>
-                            Save Note
-                          </button>
-                          <button onClick={()=>setEditingNote(null)}
-                            style={{padding:'6px 12px',background:B.white,color:B.muted,border:`1px solid ${B.line}`,borderRadius:8,fontSize:12,cursor:'pointer'}}>
-                            Cancel
-                          </button>
-                        </div>
-                      </div>
-                    )}
+            <div key={i} style={{background:B.white,borderRadius:16,border:`1px solid ${B.line}`,marginBottom:20,overflow:'hidden',boxShadow:'0 1px 4px rgba(0,0,0,.05)'}}>
+              <div style={{padding:'16px 20px',display:'flex',justifyContent:'space-between',alignItems:'flex-start',borderBottom:`1px solid ${B.line}`}}>
+                <div>
+                  <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}>
+                    <div style={{fontWeight:700,fontSize:16,color:B.ink}}>{r.rm}</div>
+                    <span style={{background:'#EDE9FE',color:'#6D28D9',padding:'3px 9px',borderRadius:6,fontSize:11,fontWeight:700}}>TL: {r.tl.toUpperCase()}</span>
                   </div>
-                );
-              })}
-            </Card>
+                  <div style={{fontSize:12,color:B.muted,marginTop:4}}><span style={{fontWeight:600,color:B.ink}}>Cluster:</span> {cluster}</div>
+                </div>
+                <button onClick={()=>handleShare(r)}
+                  style={{background:'#25D366',border:'none',color:'#fff',borderRadius:10,padding:'8px 16px',fontSize:12,fontWeight:700,cursor:'pointer',display:'flex',alignItems:'center',gap:6,flexShrink:0,marginLeft:12}}>
+                  <span>📱</span> Share
+                </button>
+              </div>
+              <div style={{overflowX:'auto'}}>
+                <table style={{width:'100%',borderCollapse:'collapse',fontSize:12}}>
+                  <thead>
+                    <tr style={{background:'#FAFAFA',borderBottom:`1px solid ${B.line}`}}>
+                      {['CLINIC','LEADS','STATUS','DAYS','FREQUENCY','TIMESLOT','REASON'].map(h=>(
+                        <th key={h} style={{padding:'10px 16px',textAlign:'left',fontSize:10,fontWeight:700,color:B.muted,textTransform:'uppercase',letterSpacing:'.6px',whiteSpace:'nowrap'}}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {r.clinics.map((c,j)=>{
+                      const cKey=clinicKey(r.rm,c.name);
+                      const cStatus=getStatus(r.rm,c.name,c.status);
+                      const cLeads=getLeads(r.rm,c.name);
+                      const displayLeads=cLeads!==null?cLeads:c.leads;
+                      const note=notes[cKey];
+                      const isEditing=editingNote&&editingNote.key===cKey;
+                      const st=ss(cStatus);
+                      return(
+                        <React.Fragment key={j}>
+                          <tr style={{borderBottom:`1px solid ${B.line}`}}>
+                            <td style={{padding:'12px 16px',verticalAlign:'top',minWidth:180}}>
+                              <div style={{fontWeight:700,fontSize:13,color:B.ink}}>{c.name}</div>
+                              <div style={{fontSize:11,color:B.muted,marginTop:2}}>{c.locality}</div>
+                            </td>
+                            <td style={{padding:'12px 16px',verticalAlign:'top'}}>
+                              <div style={{fontWeight:800,fontSize:14,color:B.ink}}>{displayLeads}</div>
+                              {cLeads!==null&&cLeads!==c.leads&&<div style={{fontSize:10,color:B.muted,textDecoration:'line-through'}}>{c.leads}</div>}
+                            </td>
+                            <td style={{padding:'12px 16px',verticalAlign:'top',whiteSpace:'nowrap'}}>
+                              {canEdit?(
+                                <select value={cStatus} onChange={e=>handleStatusChange(r.rm,c.name,e.target.value,cStatus)}
+                                  style={{background:st.bg,color:st.c,padding:'3px 10px',borderRadius:20,fontSize:10,fontWeight:700,textTransform:'uppercase',letterSpacing:'.5px',border:`1px solid ${st.c}`,outline:'none',cursor:'pointer'}}>
+                                  {['Growing','Stable','Declining'].map(s=><option key={s}>{s}</option>)}
+                                </select>
+                              ):(
+                                <span style={{background:st.bg,color:st.c,padding:'3px 10px',borderRadius:20,fontSize:10,fontWeight:700,textTransform:'uppercase',letterSpacing:'.5px'}}>{cStatus}</span>
+                              )}
+                            </td>
+                            <td style={{padding:'12px 16px',verticalAlign:'top'}}>
+                              <div style={{display:'flex',gap:3,flexWrap:'wrap'}}>{renderDays(c.freq)}</div>
+                            </td>
+                            <td style={{padding:'12px 16px',verticalAlign:'top'}}>
+                              <span style={freqStyle(c.freq)}>{c.freq}</span>
+                            </td>
+                            <td style={{padding:'12px 16px',verticalAlign:'top'}}>
+                              <span style={{background:'#EFF6FF',color:'#1D4ED8',padding:'4px 10px',borderRadius:6,fontSize:11,fontWeight:500,whiteSpace:'nowrap'}}>{fmtSlot(c.slot)}</span>
+                            </td>
+                            <td style={{padding:'12px 16px',verticalAlign:'top',minWidth:220,maxWidth:300}}>
+                              <div style={{fontSize:12,color:B.ink,lineHeight:1.55}}>{c.reason||'—'}</div>
+                              {canEdit&&(
+                                <button onClick={()=>setEditingNote(isEditing?null:{key:cKey,text:note?.note||'',rmName:r.rm,clinicName:c.name})}
+                                  style={{background:'none',border:'none',color:'#D97706',fontSize:11,fontWeight:600,cursor:'pointer',padding:'3px 0 0',display:'block'}}>
+                                  {note?'Edit TL note':'Add TL note'}
+                                </button>
+                              )}
+                              {note&&!isEditing&&(
+                                <div style={{background:'#FFFBEB',border:`1px solid #FDE68A`,borderRadius:6,padding:'6px 8px',marginTop:6}}>
+                                  <div style={{fontSize:9,color:'#D97706',fontWeight:700,marginBottom:2}}>NOTE FROM {note.tlName?.toUpperCase()}</div>
+                                  <div style={{fontSize:11,color:B.ink,lineHeight:1.4}}>{note.note}</div>
+                                </div>
+                              )}
+                            </td>
+                          </tr>
+                          {isEditing&&(
+                            <tr>
+                              <td colSpan={7} style={{padding:'12px 16px',background:B.brandLight}}>
+                                <textarea value={editingNote.text} onChange={e=>setEditingNote({...editingNote,text:e.target.value})}
+                                  placeholder="Write a note for the RM about this clinic…"
+                                  style={{width:'100%',padding:'8px 10px',border:`1.5px solid ${B.brand}`,borderRadius:8,fontSize:12,resize:'vertical',minHeight:64,outline:'none',boxSizing:'border-box',fontFamily:'inherit',lineHeight:1.5}}/>
+                                <div style={{display:'flex',gap:6,marginTop:8}}>
+                                  <button onClick={handleSaveNote} style={{padding:'6px 16px',background:B.brand,color:'#fff',border:'none',borderRadius:8,fontSize:12,fontWeight:700,cursor:'pointer'}}>Save Note</button>
+                                  <button onClick={()=>setEditingNote(null)} style={{padding:'6px 12px',background:B.white,color:B.muted,border:`1px solid ${B.line}`,borderRadius:8,fontSize:12,cursor:'pointer'}}>Cancel</button>
+                                </div>
+                              </td>
+                            </tr>
+                          )}
+                        </React.Fragment>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
           );
         })}
       </div>
