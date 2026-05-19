@@ -51,7 +51,7 @@ const db=firebase.firestore();
 const ROLE_MAP={'omkar@even.in':{role:'admin',name:'Admin (Omkar)',city:'Pune'}};
 
 // ── DATA LAYER ─────────────────────────────────────────────────────────────
-let _cache={targets:{},tl_targets:{},admin_state:null,tl_notes:{},route_settings:{},live_leads:{},clinic_statuses:{},loaded:false};
+let _cache={targets:{},tl_targets:{},admin_state:null,tl_notes:{},route_settings:{},live_leads:{},clinic_statuses:{},route_assignments:{},loaded:false};
 const safeKey=k=>k.replace(/[^a-zA-Z0-9_-]/g,'_');
 const clinicKey=(rm,clinic)=>safeKey(`${rm}__${clinic}`);
 
@@ -212,6 +212,7 @@ async function initFirestore(){
       if(d.id==='route_settings')_cache.route_settings=d.data()||{};
       if(d.id==='live_leads')_cache.live_leads=d.data()||{};
       if(d.id==='clinic_statuses')_cache.clinic_statuses=d.data()||{};
+      if(d.id==='route_assignments')_cache.route_assignments=d.data()||{};
     });
   }catch(e){console.warn('Firestore:',e);}
   await loadClinicNotes();
@@ -350,7 +351,7 @@ function downloadCSV(headers,rows,filename){
 }
 
 // Mobile nav
-  const FULL_NAV=[['zone','📊','Zone'],['route','🗺️','Routes'],['teams','👥','Teams'],['admin','⚙️','Admin']];
+  const FULL_NAV=[['route','🗺️','Routes'],['teams','👥','Teams'],['zone','📊','Zone'],['admin','⚙️','Admin']];
 function FullNav({screen,setScreen}){
   return <div style={{position:'fixed',bottom:0,left:'50%',transform:'translateX(-50%)',width:'100%',maxWidth:600,background:B.white,borderTop:`1px solid ${B.line}`,display:'flex',zIndex:100,boxShadow:'0 -4px 20px rgba(35,80,255,.1)'}}>
     {FULL_NAV.map(([id,icon,lbl])=>(
@@ -365,7 +366,7 @@ function FullNav({screen,setScreen}){
 
 // Desktop sidebar nav for full access
 function DesktopSideNav({screen,setScreen,user,onLogout}){
-  const items=[['zone','📊','Zone Overview'],['route','🗺️','Route Plan'],['teams','👥','All Teams'],['admin','⚙️','Admin']];
+  const items=[['route','🗺️','Route Plan'],['teams','👥','All Teams'],['zone','📊','Zone Overview'],['admin','⚙️','Admin']];
   return <div style={{width:220,background:B.navy,minHeight:'100vh',display:'flex',flexDirection:'column',flexShrink:0}}>
     <div style={{padding:'24px 20px 20px'}}>
       <div style={{fontSize:22,fontWeight:800,color:'#fff',letterSpacing:-.5}}>even</div>
@@ -724,6 +725,10 @@ function RoutePlanPanel({user}){
   const[liveLeads,setLiveLeads]=useState({...(_cache.live_leads||{})});
   const[syncing,setSyncing]=useState(false);
   const[syncMsg,setSyncMsg]=useState('');
+  const[assignments,setAssignments]=useState(_cache.route_assignments||{overrides:{},added:{}});
+  const[editingSlot,setEditingSlot]=useState(null);
+  const[addingTo,setAddingTo]=useState(null);
+  const[newClinic,setNewClinic]=useState({name:'',locality:'',slot:'',freq:'Daily',status:'Stable',reason:'',leads:0});
 
   const isTL=user&&user.role==='tl';
   const canEdit=user&&(user.role==='tl'||user.role==='admin'||user.role==='zonal');
@@ -731,12 +736,22 @@ function RoutePlanPanel({user}){
   useEffect(()=>{if(isTL&&user.name)setTlF(user.name);},[isTL]);
 
   const tls=['All',...new Set(ALL_RMS.map(r=>r.tl))];
+  const FREQ_OPTS=['Daily','Tri-weekly','Bi-weekly','Weekly'];
 
-  const getLeads=(rmName,clinicName)=>{
-    const v=liveLeads[clinicKey(rmName,clinicName)];
-    return v!==undefined?v:null;
-  };
+  const getLeads=(rmName,clinicName)=>{const v=liveLeads[clinicKey(rmName,clinicName)];return v!==undefined?v:null;};
   const getStatus=(rmName,clinicName,fallback)=>statuses[clinicKey(rmName,clinicName)]||fallback;
+
+  const saveAssignments=async(a)=>{
+    setAssignments(a);_cache.route_assignments=a;
+    await db.collection('config').doc('route_assignments').set(a).catch(()=>{});
+  };
+  const getEffectiveClinics=(r)=>{
+    const ovs=assignments.overrides||{};
+    const added=(assignments.added||{})[r.rm]||[];
+    const base=r.clinics.filter(c=>!ovs[clinicKey(r.rm,c.name)]?.removed).map(c=>{const ov=ovs[clinicKey(r.rm,c.name)]||{};return{...c,...ov};});
+    return[...base,...added.map((c,idx)=>({...c,_added:true,_addedIdx:idx}))];
+  };
+  const getCKey=(r,c)=>c._added?`${clinicKey(r.rm,c.name)}_a${c._addedIdx}`:clinicKey(r.rm,c.name);
 
   const handleSync=async()=>{
     const url=_cache.route_settings?.sheetUrl;
@@ -766,10 +781,32 @@ function RoutePlanPanel({user}){
     await updateClinicStatus(rmName,clinicName,newStatus,oldStatus);
   };
 
+  const handleFreqChange=async(r,c,newFreq)=>{
+    if(c._added){const ex=[...((assignments.added||{})[r.rm]||[])];ex[c._addedIdx]={...ex[c._addedIdx],freq:newFreq};await saveAssignments({...assignments,added:{...(assignments.added||{}),[r.rm]:ex}});}
+    else{const key=clinicKey(r.rm,c.name);await saveAssignments({...assignments,overrides:{...(assignments.overrides||{}),[key]:{...(assignments.overrides||{})[key],freq:newFreq}}});}
+  };
+  const handleSlotSave=async(r,c,newSlot)=>{
+    if(!newSlot.trim()){setEditingSlot(null);return;}
+    if(c._added){const ex=[...((assignments.added||{})[r.rm]||[])];ex[c._addedIdx]={...ex[c._addedIdx],slot:newSlot.trim()};await saveAssignments({...assignments,added:{...(assignments.added||{}),[r.rm]:ex}});}
+    else{const key=clinicKey(r.rm,c.name);await saveAssignments({...assignments,overrides:{...(assignments.overrides||{}),[key]:{...(assignments.overrides||{})[key],slot:newSlot.trim()}}});}
+    setEditingSlot(null);
+  };
+  const handleRemoveClinic=async(r,c)=>{
+    if(c._added){const ex=[...((assignments.added||{})[r.rm]||[])];ex.splice(c._addedIdx,1);await saveAssignments({...assignments,added:{...(assignments.added||{}),[r.rm]:ex}});}
+    else{const key=clinicKey(r.rm,c.name);await saveAssignments({...assignments,overrides:{...(assignments.overrides||{}),[key]:{...(assignments.overrides||{})[key],removed:true}}});}
+  };
+  const handleAddClinic=async(rmName)=>{
+    if(!newClinic.name.trim()||!newClinic.slot.trim())return;
+    const ex=(assignments.added||{})[rmName]||[];
+    await saveAssignments({...assignments,added:{...(assignments.added||{}),[rmName]:[...ex,{...newClinic,name:newClinic.name.trim(),locality:newClinic.locality.trim(),reason:newClinic.reason.trim()}]}});
+    setAddingTo(null);setNewClinic({name:'',locality:'',slot:'',freq:'Daily',status:'Stable',reason:'',leads:0});
+  };
+
   const handleShare=(r)=>{
-    const cluster=[...new Set(r.clinics.map(c=>c.locality))].join(' · ');
+    const clinics=getEffectiveClinics(r);
+    const cluster=[...new Set(clinics.map(c=>c.locality).filter(Boolean))].join(' · ');
     const lines=[`*Route Plan — ${r.rm}*`,`TL: ${r.tl} | City: ${r.city} | Cluster: ${cluster}`,``];
-    r.clinics.forEach(c=>{
+    clinics.forEach(c=>{
       const leads=getLeads(r.rm,c.name)??c.leads;
       const status=getStatus(r.rm,c.name,c.status);
       lines.push(`*${c.name}* (${c.locality})`);
@@ -790,7 +827,7 @@ function RoutePlanPanel({user}){
     return true;
   });
 
-  const totalClinics=filtered.reduce((s,r)=>s+r.clinics.length,0);
+  const totalClinics=filtered.reduce((s,r)=>s+getEffectiveClinics(r).length,0);
   const cityLabel=cityF!=='All'?cityF:'All Cities';
 
   const fmtSlot=(slot)=>{
@@ -806,7 +843,7 @@ function RoutePlanPanel({user}){
   };
 
   const renderDays=(freq)=>{
-    const map={'Daily':['Mon','Tue','Wed','Thu','Fri','Sat'],'Tri-weekly':['Mon','Wed','Fri'],'Bi-weekly':['Mon','Thu']};
+    const map={'Daily':['Mon','Tue','Wed','Thu','Fri','Sat'],'Tri-weekly':['Mon','Wed','Fri'],'Bi-weekly':['Mon','Thu'],'Weekly':['Mon']};
     const days=map[freq]||[];
     if(!days.length)return <span style={{color:B.muted,fontSize:11}}>—</span>;
     const allDays=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
@@ -815,15 +852,9 @@ function RoutePlanPanel({user}){
     return <>{days.map(d=><span key={d} style={{background:'#F1F5F9',color:B.ink,padding:'3px 7px',borderRadius:6,fontSize:11,fontWeight:500,marginRight:3}}>{d}</span>)}</>;
   };
 
-  const freqStyle=(freq)=>{
-    const c={Daily:{b:'#7B1D1D',t:'#7B1D1D'},'Tri-weekly':{b:'#5B21B6',t:'#5B21B6'},'Bi-weekly':{b:'#0E7490',t:'#0E7490'}}[freq]||{b:B.muted,t:B.muted};
-    return{border:`1.5px solid ${c.b}`,color:c.t,background:'transparent',padding:'3px 10px',borderRadius:6,fontSize:11,fontWeight:600,whiteSpace:'nowrap',display:'inline-block'};
-  };
-
-  const ss=(status)=>{
-    const m={Growing:{bg:B.greenBg,c:B.green},Stable:{bg:B.blueBg,c:B.blue2},Declining:{bg:B.redBg,c:B.red}}[status]||{bg:'#F1F5F9',c:B.muted};
-    return m;
-  };
+  const freqColors={Daily:{b:'#7B1D1D',t:'#7B1D1D'},'Tri-weekly':{b:'#5B21B6',t:'#5B21B6'},'Bi-weekly':{b:'#0E7490',t:'#0E7490'},'Weekly':{b:'#065F46',t:'#065F46'}};
+  const freqStyle=(freq)=>{const c=freqColors[freq]||{b:B.muted,t:B.muted};return{border:`1.5px solid ${c.b}`,color:c.t,background:'transparent',padding:'3px 10px',borderRadius:6,fontSize:11,fontWeight:600,whiteSpace:'nowrap',display:'inline-block'};};
+  const ss=(status)=>({Growing:{bg:B.greenBg,c:B.green},Stable:{bg:B.blueBg,c:B.blue2},Declining:{bg:B.redBg,c:B.red}}[status]||{bg:'#F1F5F9',c:B.muted});
 
   return(
     <div style={{background:'#F8F9FB',minHeight:'100vh',paddingBottom:isMobile?80:20}}>
@@ -863,7 +894,9 @@ function RoutePlanPanel({user}){
           </div>
         )}
         {filtered.map((r,i)=>{
-          const cluster=[...new Set(r.clinics.map(c=>c.locality))].join(' · ');
+          const effectiveClinics=getEffectiveClinics(r);
+          const cluster=[...new Set(effectiveClinics.map(c=>c.locality).filter(Boolean))].join(' · ');
+          const isAdding=addingTo===r.rm;
           return(
             <div key={i} style={{background:B.white,borderRadius:16,border:`1px solid ${B.line}`,marginBottom:20,overflow:'hidden',boxShadow:'0 1px 4px rgba(0,0,0,.05)'}}>
               <div style={{padding:'16px 20px',display:'flex',justifyContent:'space-between',alignItems:'flex-start',borderBottom:`1px solid ${B.line}`}}>
@@ -872,7 +905,7 @@ function RoutePlanPanel({user}){
                     <div style={{fontWeight:700,fontSize:16,color:B.ink}}>{r.rm}</div>
                     <span style={{background:'#EDE9FE',color:'#6D28D9',padding:'3px 9px',borderRadius:6,fontSize:11,fontWeight:700}}>TL: {r.tl.toUpperCase()}</span>
                   </div>
-                  <div style={{fontSize:12,color:B.muted,marginTop:4}}><span style={{fontWeight:600,color:B.ink}}>Cluster:</span> {cluster}</div>
+                  <div style={{fontSize:12,color:B.muted,marginTop:4}}><span style={{fontWeight:600,color:B.ink}}>Cluster:</span> {cluster||'—'}</div>
                 </div>
                 <button onClick={()=>handleShare(r)}
                   style={{background:'#25D366',border:'none',color:'#fff',borderRadius:10,padding:'8px 16px',fontSize:12,fontWeight:700,cursor:'pointer',display:'flex',alignItems:'center',gap:6,flexShrink:0,marginLeft:12}}>
@@ -886,27 +919,34 @@ function RoutePlanPanel({user}){
                       {['CLINIC','LEADS','STATUS','DAYS','FREQUENCY','TIMESLOT','REASON'].map(h=>(
                         <th key={h} style={{padding:'10px 16px',textAlign:'left',fontSize:10,fontWeight:700,color:B.muted,textTransform:'uppercase',letterSpacing:'.6px',whiteSpace:'nowrap'}}>{h}</th>
                       ))}
+                      {canEdit&&<th style={{padding:'10px 12px',width:44}}></th>}
                     </tr>
                   </thead>
                   <tbody>
-                    {r.clinics.map((c,j)=>{
-                      const cKey=clinicKey(r.rm,c.name);
-                      const cStatus=getStatus(r.rm,c.name,c.status);
-                      const cLeads=getLeads(r.rm,c.name);
+                    {effectiveClinics.map((c,j)=>{
+                      const noteKey=clinicKey(r.rm,c.name);
+                      const cKey=getCKey(r,c);
+                      const cStatus=c._added?c.status:getStatus(r.rm,c.name,c.status);
+                      const cLeads=c._added?c.leads:getLeads(r.rm,c.name);
                       const displayLeads=cLeads!==null?cLeads:c.leads;
-                      const note=notes[cKey];
-                      const isEditing=editingNote&&editingNote.key===cKey;
+                      const note=notes[noteKey];
+                      const isEditNote=editingNote&&editingNote.key===noteKey;
+                      const isEditSlot=editingSlot&&editingSlot.key===cKey;
                       const st=ss(cStatus);
+                      const fc=freqColors[c.freq]||{b:B.muted,t:B.muted};
                       return(
                         <React.Fragment key={j}>
-                          <tr style={{borderBottom:`1px solid ${B.line}`}}>
+                          <tr style={{borderBottom:`1px solid ${B.line}`,background:c._added?'#F0FDF4':'transparent'}}>
                             <td style={{padding:'12px 16px',verticalAlign:'top',minWidth:180}}>
-                              <div style={{fontWeight:700,fontSize:13,color:B.ink}}>{c.name}</div>
+                              <div style={{fontWeight:700,fontSize:13,color:B.ink}}>
+                                {c.name}
+                                {c._added&&<span style={{fontSize:9,background:B.greenBg,color:B.green,borderRadius:4,padding:'1px 5px',marginLeft:6,fontWeight:700}}>NEW</span>}
+                              </div>
                               <div style={{fontSize:11,color:B.muted,marginTop:2}}>{c.locality}</div>
                             </td>
                             <td style={{padding:'12px 16px',verticalAlign:'top'}}>
                               <div style={{fontWeight:800,fontSize:14,color:B.ink}}>{displayLeads}</div>
-                              {cLeads!==null&&cLeads!==c.leads&&<div style={{fontSize:10,color:B.muted,textDecoration:'line-through'}}>{c.leads}</div>}
+                              {!c._added&&cLeads!==null&&cLeads!==c.leads&&<div style={{fontSize:10,color:B.muted,textDecoration:'line-through'}}>{c.leads}</div>}
                             </td>
                             <td style={{padding:'12px 16px',verticalAlign:'top',whiteSpace:'nowrap'}}>
                               {canEdit?(
@@ -922,30 +962,61 @@ function RoutePlanPanel({user}){
                               <div style={{display:'flex',gap:3,flexWrap:'wrap'}}>{renderDays(c.freq)}</div>
                             </td>
                             <td style={{padding:'12px 16px',verticalAlign:'top'}}>
-                              <span style={freqStyle(c.freq)}>{c.freq}</span>
+                              {canEdit?(
+                                <select value={c.freq} onChange={e=>handleFreqChange(r,c,e.target.value)}
+                                  style={{border:`1.5px solid ${fc.b}`,color:fc.t,background:B.white,padding:'3px 8px',borderRadius:6,fontSize:11,fontWeight:600,cursor:'pointer',outline:'none'}}>
+                                  {FREQ_OPTS.map(f=><option key={f}>{f}</option>)}
+                                </select>
+                              ):(
+                                <span style={freqStyle(c.freq)}>{c.freq}</span>
+                              )}
                             </td>
                             <td style={{padding:'12px 16px',verticalAlign:'top'}}>
-                              <span style={{background:'#EFF6FF',color:'#1D4ED8',padding:'4px 10px',borderRadius:6,fontSize:11,fontWeight:500,whiteSpace:'nowrap'}}>{fmtSlot(c.slot)}</span>
+                              {canEdit&&isEditSlot?(
+                                <div style={{display:'flex',gap:4,alignItems:'center'}}>
+                                  <input value={editingSlot.value} onChange={e=>setEditingSlot({...editingSlot,value:e.target.value})}
+                                    placeholder="11:00–1:30"
+                                    style={{width:108,padding:'4px 8px',border:`1.5px solid ${B.brand}`,borderRadius:6,fontSize:11,outline:'none'}}
+                                    onKeyDown={e=>{if(e.key==='Enter')handleSlotSave(r,c,editingSlot.value);if(e.key==='Escape')setEditingSlot(null);}}
+                                    autoFocus/>
+                                  <button onClick={()=>handleSlotSave(r,c,editingSlot.value)}
+                                    style={{background:B.brand,border:'none',color:'#fff',borderRadius:5,padding:'4px 8px',fontSize:11,fontWeight:700,cursor:'pointer'}}>✓</button>
+                                  <button onClick={()=>setEditingSlot(null)}
+                                    style={{background:B.line,border:'none',color:B.muted,borderRadius:5,padding:'4px 6px',fontSize:11,cursor:'pointer'}}>✕</button>
+                                </div>
+                              ):(
+                                <div style={{display:'flex',alignItems:'center',gap:5}}>
+                                  <span style={{background:'#EFF6FF',color:'#1D4ED8',padding:'4px 10px',borderRadius:6,fontSize:11,fontWeight:500,whiteSpace:'nowrap'}}>{fmtSlot(c.slot)}</span>
+                                  {canEdit&&<button onClick={()=>setEditingSlot({key:cKey,value:c.slot})}
+                                    style={{background:'none',border:'none',cursor:'pointer',color:B.muted,fontSize:12,padding:2,lineHeight:1,flexShrink:0}}>✏️</button>}
+                                </div>
+                              )}
                             </td>
                             <td style={{padding:'12px 16px',verticalAlign:'top',minWidth:220,maxWidth:300}}>
                               <div style={{fontSize:12,color:B.ink,lineHeight:1.55}}>{c.reason||'—'}</div>
-                              {canEdit&&(
-                                <button onClick={()=>setEditingNote(isEditing?null:{key:cKey,text:note?.note||'',rmName:r.rm,clinicName:c.name})}
+                              {canEdit&&!c._added&&(
+                                <button onClick={()=>setEditingNote(isEditNote?null:{key:noteKey,text:note?.note||'',rmName:r.rm,clinicName:c.name})}
                                   style={{background:'none',border:'none',color:'#D97706',fontSize:11,fontWeight:600,cursor:'pointer',padding:'3px 0 0',display:'block'}}>
                                   {note?'Edit TL note':'Add TL note'}
                                 </button>
                               )}
-                              {note&&!isEditing&&(
+                              {note&&!isEditNote&&(
                                 <div style={{background:'#FFFBEB',border:`1px solid #FDE68A`,borderRadius:6,padding:'6px 8px',marginTop:6}}>
                                   <div style={{fontSize:9,color:'#D97706',fontWeight:700,marginBottom:2}}>NOTE FROM {note.tlName?.toUpperCase()}</div>
                                   <div style={{fontSize:11,color:B.ink,lineHeight:1.4}}>{note.note}</div>
                                 </div>
                               )}
                             </td>
+                            {canEdit&&(
+                              <td style={{padding:'12px 10px',verticalAlign:'top',textAlign:'center'}}>
+                                <button onClick={()=>handleRemoveClinic(r,c)} title="Remove from route"
+                                  style={{background:'none',border:`1px solid ${B.line}`,color:B.red,borderRadius:6,padding:'4px 8px',fontSize:12,cursor:'pointer',lineHeight:1}}>✕</button>
+                              </td>
+                            )}
                           </tr>
-                          {isEditing&&(
+                          {isEditNote&&(
                             <tr>
-                              <td colSpan={7} style={{padding:'12px 16px',background:B.brandLight}}>
+                              <td colSpan={canEdit?8:7} style={{padding:'12px 16px',background:B.brandLight}}>
                                 <textarea value={editingNote.text} onChange={e=>setEditingNote({...editingNote,text:e.target.value})}
                                   placeholder="Write a note for the RM about this clinic…"
                                   style={{width:'100%',padding:'8px 10px',border:`1.5px solid ${B.brand}`,borderRadius:8,fontSize:12,resize:'vertical',minHeight:64,outline:'none',boxSizing:'border-box',fontFamily:'inherit',lineHeight:1.5}}/>
@@ -962,6 +1033,60 @@ function RoutePlanPanel({user}){
                   </tbody>
                 </table>
               </div>
+              {canEdit&&(
+                <div style={{borderTop:`1px solid ${B.line}`,padding:'12px 16px'}}>
+                  {!isAdding?(
+                    <button onClick={()=>{setAddingTo(r.rm);setNewClinic({name:'',locality:'',slot:'',freq:'Daily',status:'Stable',reason:'',leads:0});}}
+                      style={{background:'none',border:`1.5px dashed ${B.brand}`,color:B.brand,borderRadius:8,padding:'7px 16px',fontSize:12,fontWeight:600,cursor:'pointer',display:'flex',alignItems:'center',gap:6}}>
+                      + Add Clinic
+                    </button>
+                  ):(
+                    <div style={{background:B.brandLight,borderRadius:10,padding:'14px 16px'}}>
+                      <div style={{fontWeight:700,fontSize:13,color:B.ink,marginBottom:12}}>Add Clinic to {r.rm}'s Route</div>
+                      <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:8,marginBottom:10}}>
+                        {[['Clinic Name *','name'],['Locality / Area','locality'],['Time Slot *','slot']].map(([lbl,field])=>(
+                          <div key={field}>
+                            <div style={{fontSize:10,fontWeight:600,color:B.muted,marginBottom:3,textTransform:'uppercase'}}>{lbl}</div>
+                            <input value={newClinic[field]} onChange={e=>setNewClinic(p=>({...p,[field]:e.target.value}))}
+                              placeholder={field==='slot'?'11:00–1:00':field==='locality'?'e.g. Kothrud':'e.g. City Clinic'}
+                              style={{width:'100%',padding:'7px 10px',border:`1.5px solid ${B.line}`,borderRadius:7,fontSize:12,outline:'none',boxSizing:'border-box'}}/>
+                          </div>
+                        ))}
+                        <div>
+                          <div style={{fontSize:10,fontWeight:600,color:B.muted,marginBottom:3,textTransform:'uppercase'}}>Frequency</div>
+                          <select value={newClinic.freq} onChange={e=>setNewClinic(p=>({...p,freq:e.target.value}))}
+                            style={{width:'100%',padding:'7px 10px',border:`1.5px solid ${B.line}`,borderRadius:7,fontSize:12,background:B.white,outline:'none',cursor:'pointer'}}>
+                            {FREQ_OPTS.map(f=><option key={f}>{f}</option>)}
+                          </select>
+                        </div>
+                        <div>
+                          <div style={{fontSize:10,fontWeight:600,color:B.muted,marginBottom:3,textTransform:'uppercase'}}>Status</div>
+                          <select value={newClinic.status} onChange={e=>setNewClinic(p=>({...p,status:e.target.value}))}
+                            style={{width:'100%',padding:'7px 10px',border:`1.5px solid ${B.line}`,borderRadius:7,fontSize:12,background:B.white,outline:'none',cursor:'pointer'}}>
+                            {['Growing','Stable','Declining'].map(s=><option key={s}>{s}</option>)}
+                          </select>
+                        </div>
+                        <div>
+                          <div style={{fontSize:10,fontWeight:600,color:B.muted,marginBottom:3,textTransform:'uppercase'}}>Reason</div>
+                          <input value={newClinic.reason} onChange={e=>setNewClinic(p=>({...p,reason:e.target.value}))} placeholder="Why this clinic?"
+                            style={{width:'100%',padding:'7px 10px',border:`1.5px solid ${B.line}`,borderRadius:7,fontSize:12,outline:'none',boxSizing:'border-box'}}/>
+                        </div>
+                      </div>
+                      <div style={{display:'flex',gap:8}}>
+                        <button onClick={()=>handleAddClinic(r.rm)}
+                          disabled={!newClinic.name.trim()||!newClinic.slot.trim()}
+                          style={{padding:'7px 18px',background:(!newClinic.name.trim()||!newClinic.slot.trim())?B.muted:B.brand,color:'#fff',border:'none',borderRadius:8,fontSize:12,fontWeight:700,cursor:(!newClinic.name.trim()||!newClinic.slot.trim())?'default':'pointer'}}>
+                          Add Clinic
+                        </button>
+                        <button onClick={()=>setAddingTo(null)}
+                          style={{padding:'7px 14px',background:B.white,color:B.muted,border:`1px solid ${B.line}`,borderRadius:8,fontSize:12,cursor:'pointer'}}>
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           );
         })}
