@@ -94,6 +94,49 @@ async function saveRouteSettings(s){
   _cache.route_settings={..._cache.route_settings,...s};
   db.collection('config').doc('route_settings').set(_cache.route_settings).catch(()=>{});
 }
+
+// Returns the ISO date string (YYYY-MM-DD) of the Monday of the given date
+function getMondayStr(d=new Date()){
+  const day=new Date(d);day.setHours(0,0,0,0);
+  day.setDate(day.getDate()-((day.getDay()+6)%7));
+  return day.toISOString().slice(0,10);
+}
+
+async function fetchDayLeads(dateStr){
+  try{const s=await db.collection('leadHistory').doc(dateStr).get();return(s.exists?s.data():{});}
+  catch(e){return {};}
+}
+
+// Sums lead history for `dayCount` days starting from the given Monday
+async function getWeekTotals(mondayStr,dayCount){
+  const mon=new Date(mondayStr);
+  const dates=Array.from({length:dayCount},(_,i)=>{
+    const d=new Date(mon);d.setDate(mon.getDate()+i);
+    return d.toISOString().slice(0,10);
+  });
+  const snaps=await Promise.all(dates.map(fetchDayLeads));
+  const totals={};
+  snaps.forEach(data=>{
+    Object.entries(data).forEach(([k,v])=>{
+      if(!k.startsWith('_')&&typeof v==='number')totals[k]=(totals[k]||0)+v;
+    });
+  });
+  return totals;
+}
+
+// Derives Growing / Stable / Declining per clinic using ±10% thresholds
+function deriveStatuses(curr,prev){
+  const result={};
+  ALL_RMS.forEach(r=>r.clinics.forEach(c=>{
+    const k=clinicKey(r.rm,c.name);
+    const cv=curr[k]||0;const pv=prev[k]||0;
+    if(pv===0){result[k]='Stable';return;}
+    const chg=(cv-pv)/pv;
+    result[k]=chg>0.1?'Growing':chg<-0.1?'Declining':'Stable';
+  }));
+  return result;
+}
+
 async function syncLeadsFromSheet(sheetUrl){
   const resp=await fetch(sheetUrl);
   if(!resp.ok)throw new Error('Fetch failed: '+resp.status);
@@ -101,21 +144,56 @@ async function syncLeadsFromSheet(sheetUrl){
   const lines=text.split('\n').filter(l=>l.trim());
   const rawMap={};
   for(let i=1;i<lines.length;i++){
-    // handle quoted CSV fields
     const row=lines[i].replace(/\r/,'');
     const m=row.match(/^"?([^",\n]+)"?,\s*(\d+)/);
     if(m)rawMap[m[1].trim()]=parseInt(m[2])||0;
   }
-  const liveLeads={};
+
+  // Build clinicKey → today's leads map
+  const liveLeads={};const todayData={};
   ALL_RMS.forEach(r=>r.clinics.forEach(c=>{
-    if(rawMap[c.name]!==undefined)liveLeads[clinicKey(r.rm,c.name)]=rawMap[c.name];
+    if(rawMap[c.name]!==undefined){
+      const k=clinicKey(r.rm,c.name);
+      liveLeads[k]=rawMap[c.name];
+      todayData[k]=rawMap[c.name];
+    }
   }));
+
+  // Persist today's counts to lead history
+  const todayStr=new Date().toISOString().slice(0,10);
+  await db.collection('leadHistory').doc(todayStr).set({...todayData,_updatedAt:new Date().toISOString()}).catch(()=>{});
+
+  // Compare this week vs same days last week (apples-to-apples)
+  const dayOfWeek=(new Date().getDay()+6)%7; // 0=Mon … 6=Sun
+  const daysElapsed=dayOfWeek+1;
+  const currMonday=getMondayStr();
+  const prevMonday=getMondayStr(new Date(Date.now()-7*86400000));
+  const[currTotals,prevTotals]=await Promise.all([
+    getWeekTotals(currMonday,daysElapsed),
+    getWeekTotals(prevMonday,daysElapsed)
+  ]);
+
+  const newStatuses=deriveStatuses(currTotals,prevTotals);
+
+  // Fire notifications for any status that changed
+  const existing=_cache.clinic_statuses||{};
+  await Promise.all(ALL_RMS.flatMap(r=>r.clinics.map(async c=>{
+    const k=clinicKey(r.rm,c.name);
+    const oldStatus=existing[k]||c.status;
+    const newStatus=newStatuses[k];
+    if(newStatus&&oldStatus!==newStatus)await saveStatusNotif(c.name,oldStatus,newStatus,r.rm);
+  })));
+
+  // Save auto-derived statuses and live leads
+  _cache.clinic_statuses={..._cache.clinic_statuses,...newStatuses};
+  await db.collection('config').doc('clinic_statuses').set(_cache.clinic_statuses).catch(()=>{});
   liveLeads._updatedAt=new Date().toISOString();
   await db.collection('config').doc('live_leads').set(liveLeads).catch(()=>{});
   _cache.live_leads=liveLeads;
   await saveRouteSettings({sheetUrl,lastSynced:liveLeads._updatedAt});
   return liveLeads;
 }
+
 async function updateClinicStatus(rmName,clinicName,newStatus,oldStatus){
   const key=clinicKey(rmName,clinicName);
   _cache.clinic_statuses[key]=newStatus;
@@ -1771,11 +1849,15 @@ function AdminPanel(){
           <Card>
             <div style={{fontWeight:700,fontSize:14,color:B.ink,marginBottom:10}}>How it works</div>
             <div style={{fontSize:13,color:B.muted,lineHeight:1.8}}>
-              1. Maintain a Google Sheet with two columns: Clinic Name and daily lead count.<br/>
-              2. Each morning, update the lead counts in the sheet.<br/>
-              3. Click "Sync Now" above (or use the sync button on the Route Plan page).<br/>
-              4. Lead counts on all clinics update immediately for everyone.<br/>
-              5. The previous count shown with a strikethrough so changes are visible.
+              1. Maintain a Google Sheet with two columns: Clinic Name and today's lead count.<br/>
+              2. Each morning, update the counts and click "Sync Now" (or use the button on the Route Plan page).<br/>
+              3. Lead counts update instantly for everyone. The previous count shows with a strikethrough.<br/>
+              4. Each day's data is stored in history automatically.<br/>
+              5. <strong style={{color:B.ink}}>Status is auto-calculated</strong> by comparing this week vs same days last week:<br/>
+              &nbsp;&nbsp;&nbsp;• &gt;10% more leads → <span style={{color:B.green,fontWeight:700}}>Growing</span><br/>
+              &nbsp;&nbsp;&nbsp;• &gt;10% fewer leads → <span style={{color:B.red,fontWeight:700}}>Declining</span><br/>
+              &nbsp;&nbsp;&nbsp;• Within ±10% → <span style={{color:B.blue2,fontWeight:700}}>Stable</span><br/>
+              6. When status changes, the RM gets a notification automatically.
             </div>
           </Card>
         </div>}
