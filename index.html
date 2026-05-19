@@ -51,7 +51,7 @@ const db=firebase.firestore();
 const ROLE_MAP={'omkar@even.in':{role:'admin',name:'Admin (Omkar)',city:'Pune'}};
 
 // ── DATA LAYER ─────────────────────────────────────────────────────────────
-let _cache={targets:{},tl_targets:{},admin_state:null,tl_notes:{},loaded:false};
+let _cache={targets:{},tl_targets:{},admin_state:null,tl_notes:{},route_settings:{},live_leads:{},clinic_statuses:{},loaded:false};
 const safeKey=k=>k.replace(/[^a-zA-Z0-9_-]/g,'_');
 const clinicKey=(rm,clinic)=>safeKey(`${rm}__${clinic}`);
 
@@ -89,6 +89,40 @@ async function getNotifications(rmName){
 }
 async function markNotifRead(id){db.collection('notifications').doc(id).update({read:true}).catch(()=>{});}
 
+// ── ROUTE PLAN SYNC ────────────────────────────────────────────────────────
+async function saveRouteSettings(s){
+  _cache.route_settings={..._cache.route_settings,...s};
+  db.collection('config').doc('route_settings').set(_cache.route_settings).catch(()=>{});
+}
+async function syncLeadsFromSheet(sheetUrl){
+  const resp=await fetch(sheetUrl);
+  if(!resp.ok)throw new Error('Fetch failed: '+resp.status);
+  const text=await resp.text();
+  const lines=text.split('\n').filter(l=>l.trim());
+  const rawMap={};
+  for(let i=1;i<lines.length;i++){
+    // handle quoted CSV fields
+    const row=lines[i].replace(/\r/,'');
+    const m=row.match(/^"?([^",\n]+)"?,\s*(\d+)/);
+    if(m)rawMap[m[1].trim()]=parseInt(m[2])||0;
+  }
+  const liveLeads={};
+  ALL_RMS.forEach(r=>r.clinics.forEach(c=>{
+    if(rawMap[c.name]!==undefined)liveLeads[clinicKey(r.rm,c.name)]=rawMap[c.name];
+  }));
+  liveLeads._updatedAt=new Date().toISOString();
+  await db.collection('config').doc('live_leads').set(liveLeads).catch(()=>{});
+  _cache.live_leads=liveLeads;
+  await saveRouteSettings({sheetUrl,lastSynced:liveLeads._updatedAt});
+  return liveLeads;
+}
+async function updateClinicStatus(rmName,clinicName,newStatus,oldStatus){
+  const key=clinicKey(rmName,clinicName);
+  _cache.clinic_statuses[key]=newStatus;
+  db.collection('config').doc('clinic_statuses').set(_cache.clinic_statuses).catch(()=>{});
+  await saveStatusNotif(clinicName,oldStatus,newStatus,rmName);
+}
+
 async function initFirestore(){
   try{
     const[tSnap,cSnap]=await Promise.all([db.collection('targets').get(),db.collection('config').get()]);
@@ -97,6 +131,9 @@ async function initFirestore(){
       if(d.id==='tl_targets')_cache.tl_targets=d.data()||{};
       if(d.id==='admin_state')_cache.admin_state=d.data()||null;
       if(d.id==='tl_notes')_cache.tl_notes=d.data()||{};
+      if(d.id==='route_settings')_cache.route_settings=d.data()||{};
+      if(d.id==='live_leads')_cache.live_leads=d.data()||{};
+      if(d.id==='clinic_statuses')_cache.clinic_statuses=d.data()||{};
     });
   }catch(e){console.warn('Firestore:',e);}
   await loadClinicNotes();
@@ -250,7 +287,7 @@ function FullNav({screen,setScreen}){
 
 // Desktop sidebar nav for full access
 function DesktopSideNav({screen,setScreen,user,onLogout}){
-  const items=[['zone','📊','Zone Overview'],['board','🏆','Leaderboard'],['route','🗺️','Route Plan'],['teams','👥','All Teams'],['admin','⚙️','Admin']];
+  const items=[['zone','📊','Zone Overview'],['route','🗺️','Route Plan'],['teams','👥','All Teams'],['admin','⚙️','Admin']];
   return <div style={{width:220,background:B.navy,minHeight:'100vh',display:'flex',flexDirection:'column',flexShrink:0}}>
     <div style={{padding:'24px 20px 20px'}}>
       <div style={{fontSize:22,fontWeight:800,color:'#fff',letterSpacing:-.5}}>even</div>
@@ -617,25 +654,87 @@ function TLView({user,onLogout}){
 }
 
 // ── ROUTE PLAN ─────────────────────────────────────────────────────────────
-function RoutePlanPanel(){
+function RoutePlanPanel({user}){
   const isMobile=useIsMobile();
-  const[cityF,setCityF]=useState('All');const[tlF,setTlF]=useState('All');const[search,setSearch]=useState('');
+  const[cityF,setCityF]=useState('All');
+  const[tlF,setTlF]=useState('All');
+  const[search,setSearch]=useState('');
+  const[notes,setNotes]=useState({..._clinicNotes});
+  const[editingNote,setEditingNote]=useState(null); // {key,text,rmName,clinicName}
+  const[statuses,setStatuses]=useState({...(_cache.clinic_statuses||{})});
+  const[liveLeads,setLiveLeads]=useState({...(_cache.live_leads||{})});
+  const[syncing,setSyncing]=useState(false);
+  const[syncMsg,setSyncMsg]=useState('');
+
+  const isTL=user&&user.role==='tl';
+  const canEdit=user&&(user.role==='tl'||user.role==='admin'||user.role==='zonal');
+
+  useEffect(()=>{if(isTL&&user.name)setTlF(user.name);},[isTL]);
+
   const tls=['All',...new Set(ALL_RMS.map(r=>r.tl))];
+
+  const getLeads=(rmName,clinicName)=>{
+    const v=liveLeads[clinicKey(rmName,clinicName)];
+    return v!==undefined?v:null;
+  };
+  const getStatus=(rmName,clinicName,fallback)=>statuses[clinicKey(rmName,clinicName)]||fallback;
+
+  const handleSync=async()=>{
+    const url=_cache.route_settings?.sheetUrl;
+    if(!url){setSyncMsg('No sheet configured. Admin must set it in Admin > Route Sync.');return;}
+    setSyncing(true);setSyncMsg('');
+    try{
+      const res=await syncLeadsFromSheet(url);
+      setLiveLeads({...res});
+      const n=Object.keys(res).filter(k=>!k.startsWith('_')).length;
+      setSyncMsg('Synced '+n+' clinics');
+    }catch(e){setSyncMsg('Sync failed — check sheet URL or publish settings');}
+    setSyncing(false);
+    setTimeout(()=>setSyncMsg(''),6000);
+  };
+
+  const handleSaveNote=async()=>{
+    if(!editingNote||!editingNote.text.trim())return;
+    const key=clinicKey(editingNote.rmName,editingNote.clinicName);
+    await saveClinicNote(key,editingNote.text,user.name,editingNote.rmName);
+    setNotes(p=>({...p,[key]:{note:editingNote.text.trim(),tlName:user.name,updatedAt:new Date().toISOString()}}));
+    setEditingNote(null);
+  };
+
+  const handleStatusChange=async(rmName,clinicName,newStatus,oldStatus)=>{
+    const key=clinicKey(rmName,clinicName);
+    setStatuses(p=>({...p,[key]:newStatus}));
+    await updateClinicStatus(rmName,clinicName,newStatus,oldStatus);
+  };
+
+  const lastSync=_cache.route_settings?.lastSynced;
+  const lastSyncStr=lastSync?new Date(lastSync).toLocaleString('en-IN',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}):'Never synced';
+
   const filtered=ALL_RMS.filter(r=>{
     if(cityF!=='All'&&r.city!==cityF)return false;
     if(tlF!=='All'&&r.tl!==tlF)return false;
     if(search&&!r.rm.toLowerCase().includes(search.toLowerCase())&&!r.clinics.some(c=>c.name.toLowerCase().includes(search.toLowerCase())))return false;
     return true;
   });
+
   return(
     <div style={{background:B.bg,minHeight:'100vh',paddingBottom:isMobile?80:20,paddingTop:isMobile?0:60}}>
-      <div style={{background:`linear-gradient(135deg,${B.brandDark},${B.brand})`,padding:'22px 18px 22px',borderRadius:isMobile?'0 0 28px 28px':'0 0 0 0'}}>
+      <div style={{background:`linear-gradient(135deg,${B.brandDark},${B.brand})`,padding:'22px 18px 16px',borderRadius:isMobile?'0 0 28px 28px':'0 0 0 0'}}>
         <div style={{color:'rgba(255,255,255,.65)',fontSize:12}}>Zone-Wide</div>
-        <div style={{color:'#fff',fontSize:21,fontWeight:800,marginTop:2}}>🗺️ Route Plan</div>
+        <div style={{color:'#fff',fontSize:21,fontWeight:800,marginTop:2}}>Route Plan</div>
         <div style={{color:'rgba(255,255,255,.55)',fontSize:11,marginTop:2}}>{ALL_RMS.length} RMs · {ALL_RMS.reduce((s,r)=>s+r.clinics.length,0)} clinics</div>
+        <div style={{display:'flex',gap:10,marginTop:12,alignItems:'center',flexWrap:'wrap'}}>
+          <button onClick={handleSync} disabled={syncing}
+            style={{background:'rgba(255,255,255,.2)',border:'none',color:'#fff',borderRadius:8,padding:'6px 14px',fontSize:12,fontWeight:600,cursor:syncing?'default':'pointer',opacity:syncing?.7:1}}>
+            {syncing?'Syncing…':'↻ Sync Leads from Sheet'}
+          </button>
+          <span style={{color:'rgba(255,255,255,.5)',fontSize:11}}>Last sync: {lastSyncStr}</span>
+          {syncMsg&&<span style={{color:'rgba(255,255,255,.9)',fontSize:11,fontWeight:600,background:'rgba(0,0,0,.2)',padding:'2px 8px',borderRadius:6}}>{syncMsg}</span>}
+        </div>
       </div>
+
       <div style={{background:B.white,borderBottom:`1px solid ${B.line}`,padding:'12px 16px',display:'flex',gap:8,flexWrap:'wrap'}}>
-        <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="🔍 Search RM or clinic..."
+        <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search RM or clinic..."
           style={{flex:1,minWidth:140,padding:'8px 12px',border:`1.5px solid ${B.line}`,borderRadius:10,fontSize:13,outline:'none'}}/>
         {[['City',['All','Pune','Mumbai','Nagpur'],cityF,setCityF],['TL',tls,tlF,setTlF]].map(([l,opts,v,s])=>(
           <select key={l} value={v} onChange={e=>s(e.target.value)} style={{padding:'8px 10px',border:`1.5px solid ${B.line}`,borderRadius:10,fontSize:12,fontWeight:600,background:B.white,outline:'none',cursor:'pointer'}}>
@@ -643,34 +742,94 @@ function RoutePlanPanel(){
           </select>
         ))}
       </div>
+
       <div style={{padding:'14px 16px'}}>
-        {filtered.map((r,i)=>(
-          <Card key={i} style={{marginBottom:14}}>
-            <div style={{background:`linear-gradient(135deg,${B.brand},${B.brandMid})`,margin:'-14px -16px 12px',padding:'12px 16px',borderRadius:'16px 16px 0 0',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-              <div><div style={{color:'#fff',fontWeight:700,fontSize:14}}>{r.rm}</div><div style={{color:'rgba(255,255,255,.65)',fontSize:11,marginTop:2}}>TL: {r.tl} · {r.city}</div></div>
-              <div style={{background:'rgba(255,255,255,.2)',borderRadius:10,padding:'4px 10px',textAlign:'center'}}>
-                <div style={{color:'#fff',fontWeight:800,fontSize:16}}>{r.leads}</div>
-                <div style={{color:'rgba(255,255,255,.65)',fontSize:9,textTransform:'uppercase'}}>Leads</div>
+        {filtered.map((r,i)=>{
+          const rmLeads=r.clinics.reduce((s,c)=>{const l=getLeads(r.rm,c.name);return s+(l!==null?l:c.leads);},0);
+          return(
+            <Card key={i} style={{marginBottom:14}}>
+              <div style={{background:`linear-gradient(135deg,${B.brand},${B.brandMid})`,margin:'-14px -16px 12px',padding:'12px 16px',borderRadius:'16px 16px 0 0',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                <div><div style={{color:'#fff',fontWeight:700,fontSize:14}}>{r.rm}</div><div style={{color:'rgba(255,255,255,.65)',fontSize:11,marginTop:2}}>TL: {r.tl} · {r.city}</div></div>
+                <div style={{background:'rgba(255,255,255,.2)',borderRadius:10,padding:'4px 10px',textAlign:'center'}}>
+                  <div style={{color:'#fff',fontWeight:800,fontSize:16}}>{rmLeads}</div>
+                  <div style={{color:'rgba(255,255,255,.65)',fontSize:9,textTransform:'uppercase'}}>Leads</div>
+                </div>
               </div>
-            </div>
-            {r.clinics.map((c,j)=>(
-              <div key={j} style={{display:'flex',alignItems:'center',gap:10,padding:'8px 0',borderBottom:j<r.clinics.length-1?`1px solid ${B.line}`:'none'}}>
-                <div style={{width:4,height:36,borderRadius:2,background:c.status==='Declining'?B.red:c.status==='Growing'?B.green:B.blue2,flexShrink:0}}/>
-                <div style={{flex:1,minWidth:0}}>
-                  <div style={{fontWeight:600,fontSize:12,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{c.name}</div>
-                  <div style={{display:'flex',gap:5,marginTop:3}}>
-                    <span style={{background:B.brandLight,color:B.brand,padding:'1px 6px',borderRadius:4,fontSize:9,fontWeight:700}}>🕐 {c.slot}</span>
-                    <span style={{background:'#f1f5f9',color:B.muted,padding:'1px 6px',borderRadius:4,fontSize:9}}>{c.freq}</span>
+
+              {r.clinics.map((c,j)=>{
+                const cKey=clinicKey(r.rm,c.name);
+                const cStatus=getStatus(r.rm,c.name,c.status);
+                const cLeads=getLeads(r.rm,c.name);
+                const displayLeads=cLeads!==null?cLeads:c.leads;
+                const isEditingThisNote=editingNote&&editingNote.key===cKey;
+                const note=notes[cKey];
+                const statusColor=cStatus==='Declining'?B.red:cStatus==='Growing'?B.green:B.blue2;
+
+                return(
+                  <div key={j} style={{padding:'10px 0',borderBottom:j<r.clinics.length-1?`1px solid ${B.line}`:'none'}}>
+                    <div style={{display:'flex',alignItems:'flex-start',gap:10}}>
+                      <div style={{width:4,borderRadius:2,background:statusColor,flexShrink:0,alignSelf:'stretch',minHeight:36}}/>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontWeight:600,fontSize:12,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{c.name}</div>
+                        <div style={{display:'flex',gap:5,marginTop:4,flexWrap:'wrap',alignItems:'center'}}>
+                          <span style={{background:B.brandLight,color:B.brand,padding:'1px 6px',borderRadius:4,fontSize:9,fontWeight:700}}>{c.slot}</span>
+                          <span style={{background:'#f1f5f9',color:B.muted,padding:'1px 6px',borderRadius:4,fontSize:9}}>{c.freq}</span>
+                          {canEdit?(
+                            <select value={cStatus} onChange={e=>handleStatusChange(r.rm,c.name,e.target.value,cStatus)}
+                              style={{padding:'1px 6px',border:`1px solid ${B.line}`,borderRadius:4,fontSize:9,background:B.white,outline:'none',cursor:'pointer',fontWeight:600,color:statusColor}}>
+                              {['Growing','Stable','Declining'].map(s=><option key={s}>{s}</option>)}
+                            </select>
+                          ):(
+                            <SBadge status={cStatus}/>
+                          )}
+                        </div>
+                      </div>
+                      <div style={{textAlign:'right',flexShrink:0,display:'flex',flexDirection:'column',alignItems:'flex-end',gap:4}}>
+                        <div>
+                          <div style={{fontWeight:800,fontSize:15,color:B.brand}}>{displayLeads}</div>
+                          {cLeads!==null&&cLeads!==c.leads&&<div style={{fontSize:9,color:B.muted,textDecoration:'line-through',textAlign:'right'}}>{c.leads}</div>}
+                        </div>
+                        {canEdit&&(
+                          <button onClick={()=>setEditingNote(isEditingThisNote?null:{key:cKey,text:note?.note||'',rmName:r.rm,clinicName:c.name})}
+                            style={{background:note?B.amberBg:B.brandLight,border:'none',color:note?B.amber:B.brand,borderRadius:6,padding:'2px 8px',fontSize:9,cursor:'pointer',fontWeight:700}}>
+                            {note?'Edit Note':'+ Note'}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Note display (visible to all) */}
+                    {note&&!isEditingThisNote&&(
+                      <div style={{background:'#fffbea',border:`1px solid #fde68a`,borderRadius:8,padding:'8px 10px',marginTop:8,marginLeft:14}}>
+                        <div style={{fontSize:10,color:B.amber,fontWeight:700,marginBottom:3}}>NOTE FROM {note.tlName?.toUpperCase()}</div>
+                        <div style={{fontSize:12,color:B.ink,lineHeight:1.5}}>{note.note}</div>
+                      </div>
+                    )}
+
+                    {/* Note editor (TL / admin only) */}
+                    {isEditingThisNote&&(
+                      <div style={{background:B.brandLight,borderRadius:10,padding:'10px',marginTop:8,marginLeft:14}}>
+                        <textarea value={editingNote.text} onChange={e=>setEditingNote({...editingNote,text:e.target.value})}
+                          placeholder="Write a note for the RM about this clinic…"
+                          style={{width:'100%',padding:'8px 10px',border:`1.5px solid ${B.brand}`,borderRadius:8,fontSize:12,resize:'vertical',minHeight:64,outline:'none',boxSizing:'border-box',fontFamily:'inherit',lineHeight:1.5}}/>
+                        <div style={{display:'flex',gap:6,marginTop:8}}>
+                          <button onClick={handleSaveNote}
+                            style={{padding:'6px 16px',background:B.brand,color:'#fff',border:'none',borderRadius:8,fontSize:12,fontWeight:700,cursor:'pointer'}}>
+                            Save Note
+                          </button>
+                          <button onClick={()=>setEditingNote(null)}
+                            style={{padding:'6px 12px',background:B.white,color:B.muted,border:`1px solid ${B.line}`,borderRadius:8,fontSize:12,cursor:'pointer'}}>
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </div>
-                </div>
-                <div style={{textAlign:'right',flexShrink:0}}>
-                  <div style={{fontWeight:800,fontSize:14,color:B.brand}}>{c.leads}</div>
-                  <SBadge status={c.status}/>
-                </div>
-              </div>
-            ))}
-          </Card>
-        ))}
+                );
+              })}
+            </Card>
+          );
+        })}
       </div>
     </div>
   );
@@ -1235,6 +1394,11 @@ function AdminPanel(){
   const[newRM,setNewRM]=useState({rm:'',tl:'',city:'Pune'});
   const[rmSaving,setRmSaving]=useState('');
 
+  // ── Route sync state ──
+  const[sheetUrl,setSheetUrl]=useState(_cache.route_settings?.sheetUrl||'');
+  const[routeSyncing,setRouteSyncing]=useState(false);
+  const[routeSyncMsg,setRouteSyncMsg]=useState('');
+
   // ── Clinic management state ──
   const[workingClinics,setWorkingClinics]=useState(()=>ALL_RMS.flatMap(r=>r.clinics.map(c=>({...c,rm:r.rm,tl:r.tl,city:r.city}))));
   const[clinicSearch,setClinicSearch]=useState('');
@@ -1273,6 +1437,25 @@ function AdminPanel(){
   const saveClinicsToFirebase=async(clinics)=>{
     try{ await db.collection('config').doc('clinic_assignments').set({clinics,updatedAt:new Date().toISOString()}); }
     catch(e){ console.warn('Clinic save failed:',e); }
+  };
+
+  // ── Route Sync actions ──
+  const handleSaveSheetUrl=async()=>{
+    if(!sheetUrl.trim()){setRouteSyncMsg('Paste the published CSV URL first');return;}
+    await saveRouteSettings({sheetUrl:sheetUrl.trim()});
+    setRouteSyncMsg('Sheet URL saved');
+    setTimeout(()=>setRouteSyncMsg(''),3000);
+  };
+  const handleSyncNow=async()=>{
+    if(!sheetUrl.trim()){setRouteSyncMsg('Save a sheet URL first');return;}
+    setRouteSyncing(true);setRouteSyncMsg('');
+    try{
+      const res=await syncLeadsFromSheet(sheetUrl.trim());
+      const n=Object.keys(res).filter(k=>!k.startsWith('_')).length;
+      setRouteSyncMsg('Synced '+n+' clinic leads');
+    }catch(e){setRouteSyncMsg('Sync failed — verify the URL and that the sheet is published as CSV');}
+    setRouteSyncing(false);
+    setTimeout(()=>setRouteSyncMsg(''),6000);
   };
 
   // ── RM Actions ──
@@ -1350,7 +1533,7 @@ function AdminPanel(){
     {opts.map(o=>typeof o==='string'?<option key={o}>{o}</option>:<option key={o.v} value={o.v}>{o.l}</option>)}
   </select>;
 
-  const adminTabs=[['targets','🎯 Targets'],['rms','👥 RMs & TLs'],['clinics','🏥 Clinics'],['settings','👤 Users & Reports']];
+  const adminTabs=[['targets','🎯 Targets'],['rms','👥 RMs & TLs'],['clinics','🏥 Clinics'],['route','🗺️ Route Sync'],['settings','👤 Users & Reports']];
 
   return(
     <div style={{background:B.bg,minHeight:'100vh',paddingBottom:isMobile?80:20,padding:isMobile?'0 0 80px 0':'20px 24px'}}>
@@ -1557,6 +1740,63 @@ function AdminPanel(){
             </table>
           </div>
           <div style={{fontSize:12,color:B.muted,marginTop:10}}>Showing {filteredClinics.length} of {workingClinics.length} clinics</div>
+        </div>}
+
+        {/* ── ROUTE SYNC TAB ── */}
+        {adminTab==='route'&&<div>
+          <Card style={{marginBottom:16}}>
+            <div style={{fontWeight:700,fontSize:16,color:B.ink,marginBottom:4}}>Route Plan — Sheet Sync</div>
+            <div style={{fontSize:12,color:B.muted,marginBottom:18}}>Connect a published Google Sheet to update clinic lead counts daily. One sync overwrites all leads with the sheet values.</div>
+
+            <div style={{marginBottom:16}}>
+              <div style={{fontSize:11,color:B.muted,marginBottom:6,fontWeight:600,textTransform:'uppercase'}}>Google Sheet CSV URL</div>
+              <input value={sheetUrl} onChange={e=>setSheetUrl(e.target.value)}
+                placeholder="https://docs.google.com/spreadsheets/d/.../pub?output=csv"
+                style={{width:'100%',padding:'10px 12px',border:`1.5px solid ${B.line}`,borderRadius:10,fontSize:13,outline:'none',boxSizing:'border-box'}}
+                onFocus={e=>e.target.style.borderColor=B.brand} onBlur={e=>e.target.style.borderColor=B.line}/>
+              <div style={{fontSize:11,color:B.muted,marginTop:6,lineHeight:1.6}}>
+                In Google Sheets: <strong>File → Share → Publish to web</strong> → choose the sheet → select <strong>CSV</strong> → Publish. Copy the URL here.
+              </div>
+            </div>
+
+            <div style={{background:B.amberBg,border:`1px solid ${B.amber}`,borderRadius:10,padding:'12px 14px',marginBottom:18}}>
+              <div style={{fontWeight:700,fontSize:12,color:B.amber,marginBottom:6}}>Required sheet format</div>
+              <div style={{fontSize:12,color:B.ink,lineHeight:1.7}}>
+                Row 1 (header): <strong>Clinic Name, Leads</strong><br/>
+                Row 2+: Exact clinic name as shown in app, today's lead count<br/>
+                Example: <code style={{background:'rgba(0,0,0,.06)',padding:'0 4px',borderRadius:4}}>MEDISURE Health Clinic,156</code>
+              </div>
+            </div>
+
+            <div style={{display:'flex',gap:10,alignItems:'center',flexWrap:'wrap'}}>
+              <button onClick={handleSaveSheetUrl}
+                style={{padding:'10px 20px',background:B.navy,color:'#fff',border:'none',borderRadius:10,fontSize:13,fontWeight:700,cursor:'pointer'}}>
+                Save URL
+              </button>
+              <button onClick={handleSyncNow} disabled={routeSyncing}
+                style={{padding:'10px 20px',background:routeSyncing?B.muted:B.green,color:'#fff',border:'none',borderRadius:10,fontSize:13,fontWeight:700,cursor:routeSyncing?'default':'pointer'}}>
+                {routeSyncing?'Syncing…':'↻ Sync Now'}
+              </button>
+              {routeSyncMsg&&<span style={{fontSize:13,color:routeSyncMsg.includes('failed')||routeSyncMsg.includes('verify')?B.red:B.green,fontWeight:600}}>{routeSyncMsg}</span>}
+            </div>
+
+            {_cache.route_settings?.lastSynced&&(
+              <div style={{marginTop:14,fontSize:12,color:B.muted}}>
+                Last synced: {new Date(_cache.route_settings.lastSynced).toLocaleString('en-IN',{day:'numeric',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'})}
+              </div>
+            )}
+          </Card>
+
+          <Card>
+            <div style={{fontWeight:700,fontSize:14,color:B.ink,marginBottom:10}}>How it works</div>
+            <div style={{fontSize:13,color:B.muted,lineHeight:1.8}}>
+              1. Maintain a Google Sheet with two columns: Clinic Name and daily lead count.<br/>
+              2. Each morning, update the lead counts in the sheet.<br/>
+              3. Click "Sync Now" above (or use the sync button on the Route Plan page).<br/>
+              4. Lead counts on all clinics update immediately for everyone.<br/>
+              5. The previous count shown with a strikethrough so changes are visible.
+            </div>
+          </Card>
         </div>}
 
         {/* ── USERS TAB ── */}
