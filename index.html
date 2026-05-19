@@ -53,6 +53,41 @@ const ROLE_MAP={'omkar@even.in':{role:'admin',name:'Admin (Omkar)',city:'Pune'}}
 // ── DATA LAYER ─────────────────────────────────────────────────────────────
 let _cache={targets:{},tl_targets:{},admin_state:null,tl_notes:{},loaded:false};
 const safeKey=k=>k.replace(/[^a-zA-Z0-9_-]/g,'_');
+const clinicKey=(rm,clinic)=>safeKey(`${rm}__${clinic}`);
+
+// ── CLINIC NOTES & NOTIFICATIONS ───────────────────────────────────────────
+let _clinicNotes={};
+async function loadClinicNotes(){
+  try{const snap=await db.collection('clinicNotes').get();snap.forEach(d=>{_clinicNotes[d.id]=d.data();});}catch(e){}
+}
+async function saveClinicNote(key,note,tlName,rmName){
+  const data={note:note.trim(),tlName,updatedAt:new Date().toISOString()};
+  await db.collection('clinicNotes').doc(key).set(data);
+  _clinicNotes[key]=data;
+  if(note.trim()&&rmName){
+    await db.collection('notifications').add({
+      rmName,type:'note',
+      message:`📝 ${tlName} left a note on your clinic`,
+      clinicKey:key,preview:note.trim().substring(0,120),
+      read:false,createdAt:new Date().toISOString()
+    });
+  }
+}
+async function saveStatusNotif(clinicName,oldStatus,newStatus,rmName){
+  if(!rmName||oldStatus===newStatus)return;
+  await db.collection('notifications').add({
+    rmName,type:'status',
+    message:`🔄 ${clinicName} is now ${newStatus} (was ${oldStatus})`,
+    clinicName,newStatus,read:false,createdAt:new Date().toISOString()
+  });
+}
+async function getNotifications(rmName){
+  try{
+    const snap=await db.collection('notifications').where('rmName','==',rmName).get();
+    return snap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>(b.createdAt||'').localeCompare(a.createdAt||''));
+  }catch(e){return [];}
+}
+async function markNotifRead(id){db.collection('notifications').doc(id).update({read:true}).catch(()=>{});}
 
 async function initFirestore(){
   try{
@@ -64,6 +99,7 @@ async function initFirestore(){
       if(d.id==='tl_notes')_cache.tl_notes=d.data()||{};
     });
   }catch(e){console.warn('Firestore:',e);}
+  await loadClinicNotes();
   _cache.loaded=true;
 }
 function loadStore(){return _cache.targets||{};}
@@ -234,6 +270,50 @@ function DesktopSideNav({screen,setScreen,user,onLogout}){
       <button onClick={onLogout} style={{background:'rgba(255,255,255,.1)',border:'none',color:'rgba(255,255,255,.7)',borderRadius:8,padding:'7px 14px',fontSize:12,cursor:'pointer',fontWeight:600}}>Sign Out</button>
     </div>
   </div>;
+}
+
+// ── NOTIFICATION BELL ──────────────────────────────────────────────────────
+function NotificationBell({rmName}){
+  const[notifs,setNotifs]=useState([]);
+  const[open,setOpen]=useState(false);
+  const load=useCallback(()=>getNotifications(rmName).then(setNotifs),[rmName]);
+  useEffect(()=>{if(!rmName)return;load();const t=setInterval(load,30000);return()=>clearInterval(t);},[rmName,load]);
+  const unread=notifs.filter(n=>!n.read).length;
+  const handleOpen=()=>{
+    setOpen(o=>!o);
+    notifs.filter(n=>!n.read).forEach(n=>markNotifRead(n.id));
+    setTimeout(()=>setNotifs(p=>p.map(n=>({...n,read:true}))),300);
+  };
+  const typeIcon={note:'📝',status:'🔄'};
+  return(
+    <div style={{position:'relative'}}>
+      <button onClick={handleOpen} style={{position:'relative',background:'rgba(255,255,255,.18)',border:'none',color:'#fff',borderRadius:10,padding:'7px 11px',cursor:'pointer',fontSize:18,lineHeight:1}}>
+        🔔
+        {unread>0&&<span style={{position:'absolute',top:-5,right:-5,background:B.red,color:'#fff',borderRadius:10,padding:'1px 5px',fontSize:10,fontWeight:800,minWidth:18,textAlign:'center',lineHeight:'16px'}}>
+          {unread>9?'9+':unread}
+        </span>}
+      </button>
+      {open&&<>
+        <div onClick={handleOpen} style={{position:'fixed',inset:0,zIndex:199}}/>
+        <div style={{position:'absolute',right:0,top:'110%',width:320,background:B.white,borderRadius:16,boxShadow:'0 12px 40px rgba(0,0,0,.18)',zIndex:200,maxHeight:420,display:'flex',flexDirection:'column',border:`1px solid ${B.line}`}}>
+          <div style={{padding:'12px 16px',borderBottom:`1px solid ${B.line}`,fontWeight:700,fontSize:13,color:B.ink,display:'flex',justifyContent:'space-between',alignItems:'center',flexShrink:0}}>
+            Notifications
+            {unread>0&&<span style={{background:B.redBg,color:B.red,padding:'2px 8px',borderRadius:10,fontSize:11}}>{unread} new</span>}
+          </div>
+          <div style={{overflowY:'auto',flex:1}}>
+            {notifs.length===0&&<div style={{padding:24,textAlign:'center',color:B.muted,fontSize:13}}>No notifications yet</div>}
+            {notifs.map((n,i)=>(
+              <div key={n.id} style={{padding:'10px 16px',borderBottom:i<notifs.length-1?`1px solid ${B.line}`:'none',background:n.read?'transparent':B.brandLight}}>
+                <div style={{fontSize:13,color:B.ink,fontWeight:n.read?400:600}}>{typeIcon[n.type]||'📌'} {n.message}</div>
+                {n.preview&&<div style={{fontSize:11,color:B.muted,marginTop:3,fontStyle:'italic',lineHeight:1.4}}>"{n.preview}"</div>}
+                <div style={{fontSize:10,color:B.muted,marginTop:4}}>{n.createdAt?new Date(n.createdAt).toLocaleString('en-IN'):'—'}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </>}
+    </div>
+  );
 }
 
 // ── LOADING ────────────────────────────────────────────────────────────────
