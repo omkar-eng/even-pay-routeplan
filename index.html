@@ -632,25 +632,6 @@ function TLView({user,onLogout}){
       </div>
     </div>}
   </>;
-        <button key={id} onClick={()=>setScreen(id)} style={{flex:1,padding:'10px 8px 12px',background:'none',border:'none',display:'flex',flexDirection:'column',alignItems:'center',gap:3,cursor:'pointer'}}>
-          <span style={{fontSize:22}}>{icon}</span>
-          <span style={{fontSize:11,fontWeight:screen===id?700:500,color:screen===id?B.brand:B.muted}}>{lbl}</span>
-          {screen===id&&<div style={{width:20,height:3,background:B.brand,borderRadius:2}}/>}
-        </button>
-      ))}
-    </div>}
-    {!isMobile&&<div style={{position:'fixed',top:0,left:0,right:0,background:B.white,borderBottom:`1px solid ${B.line}`,padding:'0 32px',display:'flex',gap:4,zIndex:100,boxShadow:'0 2px 8px rgba(0,0,0,.04)'}}>
-      {[['team','👥 My Team'],['route','🗺️ Route Plan']].map(([id,lbl])=>(
-        <button key={id} onClick={()=>setScreen(id)} style={{padding:'14px 18px',background:'none',border:'none',borderBottom:screen===id?`3px solid ${B.brand}`:'3px solid transparent',color:screen===id?B.brand:B.muted,fontWeight:screen===id?700:500,fontSize:13,cursor:'pointer'}}>
-          {lbl}
-        </button>
-      ))}
-      <div style={{marginLeft:'auto',display:'flex',alignItems:'center',gap:12}}>
-        <span style={{fontSize:13,color:B.muted}}>{user.name}</span>
-        <button onClick={onLogout} style={{background:B.redBg,border:'none',color:B.red,borderRadius:8,padding:'6px 12px',fontSize:12,cursor:'pointer',fontWeight:600}}>Logout</button>
-      </div>
-    </div>}
-  </>;
 }
 
 // ── ROUTE PLAN ─────────────────────────────────────────────────────────────
