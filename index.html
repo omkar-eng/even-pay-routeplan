@@ -385,6 +385,7 @@ function Login({onLogin}){
 // ── RM VIEW ────────────────────────────────────────────────────────────────
 function RMView({user,onLogout}){
   const[tab,setTab]=useState('clinics');
+  const[notes,setNotes]=useState({..._clinicNotes});
   const rm=ALL_RMS.find(r=>r.rm===user.name)||ALL_RMS[0];
   const p=pct(rm.achieved,rm.target);
   const lp=pct(rm.monthlyAchv,rm.monthlyTgt);
@@ -399,7 +400,10 @@ function RMView({user,onLogout}){
             <div style={{color:'#fff',fontSize:21,fontWeight:800,marginTop:2}}>{rm.rm}</div>
             <div style={{color:'rgba(255,255,255,.55)',fontSize:11,marginTop:3}}>TL: {rm.tl} · {rm.city}</div>
           </div>
-          <button onClick={onLogout} style={{background:'rgba(255,255,255,.15)',border:'none',color:'rgba(255,255,255,.8)',borderRadius:8,padding:'5px 10px',fontSize:11,cursor:'pointer'}}>Logout</button>
+          <div style={{display:'flex',gap:8,alignItems:'center'}}>
+            <NotificationBell rmName={rm.rm}/>
+            <button onClick={onLogout} style={{background:'rgba(255,255,255,.15)',border:'none',color:'rgba(255,255,255,.8)',borderRadius:8,padding:'5px 10px',fontSize:11,cursor:'pointer'}}>Logout</button>
+          </div>
         </div>
         <div style={{display:'flex',gap:8}}>
           <KTile label="Leads" value={rm.leads}/>
@@ -431,6 +435,13 @@ function RMView({user,onLogout}){
                     <span style={{background:B.brandLight,color:B.brand,padding:'2px 8px',borderRadius:6,fontSize:10,fontWeight:700}}>🕐 {c.slot}</span>
                     <span style={{background:'#f1f5f9',color:B.muted,padding:'2px 8px',borderRadius:6,fontSize:10}}>{c.freq}</span>
                   </div>
+                  {/* TL Note display */}
+                  {notes[clinicKey(rm.rm,c.name)]&&<div style={{background:'#fffbea',border:`1px solid #fde68a`,borderRadius:8,padding:'8px 10px',marginTop:8}}>
+                    <div style={{fontSize:10,color:B.amber,fontWeight:700,marginBottom:3}}>
+                      📝 NOTE FROM {notes[clinicKey(rm.rm,c.name)].tlName?.toUpperCase()}
+                    </div>
+                    <div style={{fontSize:12,color:B.ink,lineHeight:1.5}}>{notes[clinicKey(rm.rm,c.name)].note}</div>
+                  </div>}
                 </div>
                 <div style={{textAlign:'center',marginLeft:12,flexShrink:0}}>
                   <div style={{fontSize:24,fontWeight:800,color:B.brand}}>{c.leads}</div>
@@ -562,9 +573,28 @@ function TLView({user,onLogout}){
 
   return <>
     {screen==='team'&&<TeamView/>}
-    {screen==='route'&&<RoutePlanPanel/>}
+    {screen==='route'&&<RoutePlanPanel user={user}/>}
     {isMobile&&<div style={{position:'fixed',bottom:0,left:'50%',transform:'translateX(-50%)',width:'100%',maxWidth:600,background:B.white,borderTop:`1px solid ${B.line}`,display:'flex',zIndex:100,boxShadow:'0 -4px 20px rgba(35,80,255,.1)'}}>
       {[['team','👥','My Team'],['route','🗺️','Route Plan']].map(([id,icon,lbl])=>(
+        <button key={id} onClick={()=>setScreen(id)} style={{flex:1,padding:'10px 8px 12px',background:'none',border:'none',display:'flex',flexDirection:'column',alignItems:'center',gap:3,cursor:'pointer'}}>
+          <span style={{fontSize:22}}>{icon}</span>
+          <span style={{fontSize:11,fontWeight:screen===id?700:500,color:screen===id?B.brand:B.muted}}>{lbl}</span>
+          {screen===id&&<div style={{width:20,height:3,background:B.brand,borderRadius:2}}/>}
+        </button>
+      ))}
+    </div>}
+    {!isMobile&&<div style={{position:'fixed',top:0,left:0,right:0,background:B.white,borderBottom:`1px solid ${B.line}`,padding:'0 32px',display:'flex',gap:4,zIndex:100,boxShadow:'0 2px 8px rgba(0,0,0,.04)'}}>
+      {[['team','👥 My Team'],['route','🗺️ Route Plan']].map(([id,lbl])=>(
+        <button key={id} onClick={()=>setScreen(id)} style={{padding:'14px 18px',background:'none',border:'none',borderBottom:screen===id?`3px solid ${B.brand}`:'3px solid transparent',color:screen===id?B.brand:B.muted,fontWeight:screen===id?700:500,fontSize:13,cursor:'pointer'}}>
+          {lbl}
+        </button>
+      ))}
+      <div style={{marginLeft:'auto',display:'flex',alignItems:'center',gap:12}}>
+        <span style={{fontSize:13,color:B.muted}}>{user.name}</span>
+        <button onClick={onLogout} style={{background:B.redBg,border:'none',color:B.red,borderRadius:8,padding:'6px 12px',fontSize:12,cursor:'pointer',fontWeight:600}}>Logout</button>
+      </div>
+    </div>}
+  </>;
         <button key={id} onClick={()=>setScreen(id)} style={{flex:1,padding:'10px 8px 12px',background:'none',border:'none',display:'flex',flexDirection:'column',alignItems:'center',gap:3,cursor:'pointer'}}>
           <span style={{fontSize:22}}>{icon}</span>
           <span style={{fontSize:11,fontWeight:screen===id?700:500,color:screen===id?B.brand:B.muted}}>{lbl}</span>
@@ -641,104 +671,6 @@ function RoutePlanPanel(){
             ))}
           </Card>
         ))}
-      </div>
-    </div>
-  );
-}
-
-// ── LEADERBOARD ────────────────────────────────────────────────────────────
-function LeaderboardPanel(){
-  const[tab,setTab]=useState('tls');
-  const tlRanked=[...ZONE.tls].sort((a,b)=>pct(b.achieved,b.target)-pct(a.achieved,a.target));
-  const rmRanked=[...ALL_RMS].sort((a,b)=>pct(b.achieved,b.target)-pct(a.achieved,a.target));
-  const actual=ZONE.achieved-ZONE.refund;const zp=pct(actual,ZONE.target);
-  const Podium=({items,nk})=>(
-    <div style={{display:'flex',gap:8,marginBottom:16,alignItems:'flex-end'}}>
-      {[items[1],items[0],items[2]].map((item,idx)=>{
-        if(!item)return <div key={idx} style={{flex:1}}/>;
-        const p=pct(item.achieved,item.target);
-        const ms=['🥈','🥇','🥉'];const colors=[B.silver,B.gold,B.bronze];const heights=['110px','130px','95px'];
-        return <div key={item[nk]||idx} style={{flex:1,textAlign:'center'}}>
-          <div style={{fontWeight:700,fontSize:11,color:B.ink,marginBottom:2,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{nk==='rm'?item.rm.split(' ')[0]:item.name}</div>
-          <div style={{fontSize:9,color:B.muted,marginBottom:4}}>{nk==='rm'?item.tl:item.city}</div>
-          <div style={{background:colors[idx],borderRadius:'10px 10px 0 0',height:heights[idx],display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center'}}>
-            <div style={{fontSize:22}}>{ms[idx]}</div>
-            <div style={{color:'#fff',fontWeight:800,fontSize:14,marginTop:3}}>{p}%</div>
-            <div style={{color:'rgba(255,255,255,.8)',fontSize:10,marginTop:1}}>{fmt(item.achieved)}</div>
-          </div>
-        </div>;
-      })}
-    </div>
-  );
-  return(
-    <div style={{background:B.bg,minHeight:'100vh',paddingBottom:80}}>
-      <div style={{background:`linear-gradient(135deg,${B.brandDark},#4C1D95)`,padding:'22px 18px 20px',borderRadius:'0 0 28px 28px'}}>
-        <div style={{color:'rgba(255,255,255,.6)',fontSize:12}}>Zone Wide</div>
-        <div style={{color:'#fff',fontSize:21,fontWeight:800,marginTop:2}}>🏆 Leaderboard</div>
-        <div style={{background:'rgba(255,255,255,.12)',borderRadius:12,padding:'10px 14px',marginTop:12}}>
-          <div style={{display:'flex',justifyContent:'space-between',marginBottom:6}}>
-            <span style={{color:'rgba(255,255,255,.7)',fontSize:11}}>ZONE TARGET</span>
-            <span style={{color:'#fff',fontWeight:800}}>{zp}%</span>
-          </div>
-          <div style={{background:'rgba(255,255,255,.2)',borderRadius:6,height:6}}>
-            <div style={{width:`${Math.min(zp,100)}%`,height:'100%',background:zp>=90?'#4ADE80':zp>=60?'#FCD34D':'#F87171',borderRadius:6}}/>
-          </div>
-        </div>
-      </div>
-      <div style={{background:B.white,borderBottom:`1px solid ${B.line}`,display:'flex'}}>
-        {[['tls','🧑‍💼 TLs'],['rms','👤 RMs'],['cities','🗺️ Cities']].map(([v,l])=>(
-          <button key={v} onClick={()=>setTab(v)} style={{flex:1,padding:'13px 8px',background:'none',border:'none',borderBottom:tab===v?`3px solid ${B.brand}`:'3px solid transparent',color:tab===v?B.brand:B.muted,fontWeight:tab===v?700:500,fontSize:12,cursor:'pointer'}}>{l}</button>
-        ))}
-      </div>
-      <div style={{padding:'14px 16px'}}>
-        {tab==='tls'&&<>
-          <Podium items={tlRanked} nk="name"/>
-          {tlRanked.map((t,i)=>{const p=pct(t.achieved,t.target);const m=medal(i);return(
-            <Card key={t.name} style={{marginBottom:8,borderLeft:i<3?`4px solid ${mClr(i)}`:`4px solid ${pClr(p)}`}}>
-              <div style={{display:'flex',alignItems:'center',gap:10}}>
-                <div style={{width:32,height:32,background:i<3?mClr(i)+'22':pBg(p),borderRadius:8,display:'flex',alignItems:'center',justifyContent:'center',fontSize:i<3?18:12,fontWeight:800,color:i<3?mClr(i):pClr(p),flexShrink:0}}>{m||`#${i+1}`}</div>
-                <div style={{flex:1,minWidth:0}}>
-                  <div style={{display:'flex',justifyContent:'space-between',marginBottom:5}}>
-                    <div><div style={{fontWeight:700,fontSize:13}}>{t.name}</div><div style={{fontSize:10,color:B.muted}}>{t.city} · {t.rms} RMs</div></div>
-                    <div style={{textAlign:'right'}}><PBadge p={p}/><div style={{fontSize:10,color:B.muted,marginTop:2}}>{fmt(t.achieved)}/{fmt(t.target)}</div></div>
-                  </div>
-                  <MBar p={p}/>
-                </div>
-              </div>
-            </Card>
-          );})}
-        </>}
-        {tab==='rms'&&<>
-          <Podium items={rmRanked} nk="rm"/>
-          {rmRanked.map((r,i)=>{const p=pct(r.achieved,r.target);const m=medal(i);return(
-            <Card key={r.rm} style={{marginBottom:8,borderLeft:i<3?`4px solid ${mClr(i)}`:`4px solid ${pClr(p)}`}}>
-              <div style={{display:'flex',alignItems:'center',gap:10}}>
-                <div style={{width:30,height:30,background:i<3?mClr(i)+'22':pBg(p),borderRadius:8,display:'flex',alignItems:'center',justifyContent:'center',fontSize:i<3?16:11,fontWeight:800,color:i<3?mClr(i):pClr(p),flexShrink:0}}>{m||`#${i+1}`}</div>
-                <div style={{flex:1,minWidth:0}}>
-                  <div style={{display:'flex',justifyContent:'space-between',marginBottom:4}}>
-                    <div><div style={{fontWeight:700,fontSize:13}}>{r.rm}</div><div style={{fontSize:10,color:B.muted}}>TL: {r.tl} · {r.city}</div></div>
-                    <PBadge p={p}/>
-                  </div>
-                  <MBar p={p}/>
-                </div>
-              </div>
-            </Card>
-          );})}
-        </>}
-        {tab==='cities'&&[...ZONE.cities].sort((a,b)=>pct(b.achieved,b.target)-pct(a.achieved,a.target)).map((c,i)=>{
-          const p=pct(c.achieved,c.target);
-          return <Card key={c.name} style={{marginBottom:12,borderLeft:`4px solid ${mClr(i)}`}}>
-            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
-              <div style={{display:'flex',alignItems:'center',gap:10}}><div style={{fontSize:26}}>{medal(i)||`#${i+1}`}</div><div><div style={{fontWeight:800,fontSize:16}}>{c.name}</div><div style={{fontSize:11,color:B.muted}}>{c.rms} RMs · {c.leads} leads</div></div></div>
-              <PBadge p={p}/>
-            </div>
-            <MBar p={p} h={8}/>
-            <div style={{display:'flex',justifyContent:'space-between',marginTop:8}}>
-              <div style={{fontSize:12,color:B.muted}}>Achieved: <strong>{fmtN(c.achieved)}</strong></div>
-              <div style={{fontSize:12,color:B.muted}}>Target: <strong>{fmtN(c.target)}</strong></div>
-            </div>
-          </Card>;
-        })}
       </div>
     </div>
   );
@@ -1643,7 +1575,7 @@ function FullAccessView({user,onLogout}){
   const isAdmin=user.role==='admin';
   const content=<>
     {screen==='zone'&&<ZoneOverviewPanel/>}
-    {screen==='route'&&<RoutePlanPanel/>}
+    {screen==='route'&&<RoutePlanPanel user={user}/>}
     {screen==='teams'&&<AllTeamsPanel/>}
     {screen==='admin'&&<AdminPanel/>}
   </>;
