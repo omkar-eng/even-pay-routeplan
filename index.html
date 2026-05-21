@@ -1338,6 +1338,8 @@ function AllTeamsPanel(){
   const[expanded,setExpanded]=useState(null);
   const[cityF,setCityF]=useState('All');
   const[dateRange,setDateRange]=useState('This Month');
+  const[,_forceUpdate]=useState(0);
+  useEffect(()=>{const h=()=>_forceUpdate(v=>v+1);window.addEventListener('rmDataUpdated',h);return()=>window.removeEventListener('rmDataUpdated',h);},[]);
   const isMobile=useIsMobile();
   const tls=ZONE.tls.filter(t=>cityF==='All'||t.city===cityF);
   const totTarget=tls.reduce((s,t)=>s+t.target,0);
@@ -1539,6 +1541,8 @@ function AllTeamsPanel(){
 
 // ── ZONE OVERVIEW (full desktop tables) ────────────────────────────────────
 function ZoneOverviewPanel(){
+  const[,_forceUpdate]=useState(0);
+  useEffect(()=>{const h=()=>_forceUpdate(v=>v+1);window.addEventListener('rmDataUpdated',h);return()=>window.removeEventListener('rmDataUpdated',h);},[]);
   const isMobile=useIsMobile();
   const[tab,setTab]=useState('tl');
   const[filterTL,setFilterTL]=useState('all');
