@@ -231,6 +231,32 @@ function saveTLTargetsStore(s){_cache.tl_targets=s;db.collection('config').doc('
 // ── GOOGLE SHEETS INTEGRATION ──────────────────────────────────────────────
 const SHEET_SCRIPT_URL='https://script.google.com/macros/s/AKfycbwSaHdZY5TmRjWUhafHyruMFPq9IRszlVo6lL1T8ivRp5kgp2GlsKqBt7TClXzaIi5Z/exec';
 
+// Edit distance on first word — catches typos like "Yalaling" vs "Yallaling"
+function _editDist(a,b){
+  const m=a.length,n=b.length,dp=[];
+  for(let i=0;i<=m;i++){dp[i]=new Array(n+1).fill(0);dp[i][0]=i;}
+  for(let j=0;j<=n;j++)dp[0][j]=j;
+  for(let i=1;i<=m;i++)for(let j=1;j<=n;j++)
+    dp[i][j]=a[i-1]===b[j-1]?dp[i-1][j-1]:1+Math.min(dp[i-1][j],dp[i][j-1],dp[i-1][j-1]);
+  return dp[m][n];
+}
+// Returns {amt, fullName} — fullName is the canonical payment-tab name when a fuzzy match is found
+function resolveRMPayment(targetName,payByRM){
+  const lo=targetName.toLowerCase().trim();
+  if(payByRM[lo]!=null)return{amt:payByRM[lo],fullName:targetName};
+  const fw=lo.split(/\s+/)[0];
+  let best=0,bestD=Infinity,bestKey=null;
+  for(const[k,v]of Object.entries(payByRM)){
+    const d=_editDist(fw,k.split(/\s+/)[0]);
+    if(d<=2&&d<bestD){bestD=d;best=v;bestKey=k;}
+  }
+  // Use payment-tab full name only if it is longer (has more info) than the targets-tab name
+  const fullName=bestKey&&bestKey.length>lo.length
+    ?bestKey.split(' ').map(w=>w.charAt(0).toUpperCase()+w.slice(1)).join(' ')
+    :targetName;
+  return{amt:best,fullName};
+}
+
 async function syncFromGoogleSheet(){
   const el=document.getElementById('sheetSyncStatus');
   if(el){el.textContent='Syncing…';el.style.color='#64748B';}
@@ -284,17 +310,18 @@ async function syncFromGoogleSheet(){
       const sheetTL=(r['TL/ATL']||'').trim();
       const sheetCity=(r.City||'').trim();
       if(!sheetRM||!sheetTL)return;
+      const{amt:paid,fullName:displayRM}=resolveRMPayment(sheetRM,payByRM);
       const rmObj={
-        rm:sheetRM,tl:sheetTL,city:sheetCity,
+        rm:displayRM,tl:sheetTL,city:sheetCity,
         target:parseFloat(r['Target (INR)'])||0,
-        achieved:payByRM[sheetRM.toLowerCase()]||0,
+        achieved:paid,
         refund:0,monthlyTgt:parseFloat(r['Monthly Leads Target'])||0,
         monthlyAchv:0,dailyTgt:0,dailyAchv:0,renewalTgt:0,renewalAchv:0,
-        leads:0,clinics:savedClinics[sheetRM.toLowerCase()]||[]
+        leads:0,clinics:savedClinics[sheetRM.toLowerCase()]||savedClinics[displayRM.toLowerCase()]||[]
       };
       ALL_RMS.push(rmObj);
-      const key=safeKey(`${sheetTL}|${sheetRM}`);
-      s[key]={tl:sheetTL,rm:sheetRM,city:sheetCity,
+      const key=safeKey(`${sheetTL}|${displayRM}`);
+      s[key]={tl:sheetTL,rm:displayRM,city:sheetCity,
         target:rmObj.target,netAchieved:rmObj.achieved,monthlyLeads:rmObj.monthlyTgt,updatedAt:now};
     });
 
