@@ -213,6 +213,7 @@ async function initFirestore(){
       if(d.id==='live_leads')_cache.live_leads=d.data()||{};
       if(d.id==='clinic_statuses')_cache.clinic_statuses=d.data()||{};
       if(d.id==='route_assignments')_cache.route_assignments=d.data()||{};
+      if(d.id==='tl_achieved')_cache.tl_achieved=d.data()||{};
     });
   }catch(e){console.warn('Firestore:',e);}
   await loadClinicNotes();
@@ -317,7 +318,9 @@ async function syncFromGoogleSheet(){
 
     const total=Object.values(payByTL).reduce((s,v)=>s+v,0);
     if(el){el.textContent='💾 Saving '+rows.length+' RMs…';el.style.color='#64748B';}
-    await saveStore(s);
+    const tlAchMap={};
+    ZONE.tls.forEach(tl=>{tlAchMap[safeKey(tl.name)]={name:tl.name,city:tl.city,achieved:tl.achieved,target:tl.target};});
+    await Promise.all([saveStore(s),db.collection('config').doc('tl_achieved').set(tlAchMap).catch(e=>console.warn('tl_achieved write:',e))]);
     if(el){el.textContent='✅ Synced '+rows.length+' RMs · ₹'+total.toLocaleString('en-IN')+' collected — reloading…';el.style.color='#16A34A';}
     setTimeout(()=>window.location.reload(),1500);
   }catch(e){
@@ -404,7 +407,7 @@ function applyStoreToRMs(){
     const n=tl.name.toLowerCase();
     const rms=ALL_RMS.filter(r=>r.tl.toLowerCase()===n);
     tl.target    =rms.reduce((s,r)=>s+(r.target||0),0);
-    tl.achieved  =rms.reduce((s,r)=>s+(r.achieved||0),0);
+    tl.achieved  =((_cache.tl_achieved||{})[safeKey(tl.name)]||{}).achieved??rms.reduce((s,r)=>s+(r.achieved||0),0);
     tl.monthlyTgt=rms.reduce((s,r)=>s+(r.monthlyTgt||0),0);
     tl.monthlyAchv=rms.reduce((s,r)=>s+(r.monthlyAchv||0),0);
     tl.dailyTgt  =rms.reduce((s,r)=>s+(r.dailyTgt||0),0);
