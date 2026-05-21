@@ -263,7 +263,7 @@ function buildRMPayments(payByRM, targetRMNames){
     let bestD=Infinity,bestT=null;
     for(const t of targetRMNames){
       const d=_editDist(kfw,t.toLowerCase().split(/\s+/)[0]);
-      if(d<=2&&d<bestD){bestD=d;bestT=t;}
+      if(d<=1&&d<bestD){bestD=d;bestT=t;}
     }
     if(bestT){
       const lo=bestT.toLowerCase();
