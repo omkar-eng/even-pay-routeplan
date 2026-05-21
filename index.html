@@ -222,7 +222,25 @@ async function initFirestore(){
   _cache.loaded=true;
   applyStoreToRMs();
   setupAutoSync();
+  setupSheetPushListener();
 }
+let _sheetPushUnsub=null;
+function setupSheetPushListener(){
+  if(_sheetPushUnsub)_sheetPushUnsub();
+  _sheetPushUnsub=db.collection('config').doc('sync_trigger').onSnapshot(snap=>{
+    if(!snap.exists||!_cache.loaded)return;
+    // Skip the initial snapshot that fires on page load
+    const ts=snap.data()?.updatedAt;
+    const lastSync=_cache.sync_settings?.lastSynced;
+    if(!ts||ts===_lastPushTs)return;
+    _lastPushTs=ts;
+    // Only sync if the trigger is newer than our last sync
+    if(lastSync&&new Date(ts)<=new Date(lastSync))return;
+    console.log('Sheet change detected — syncing…');
+    syncFromGoogleSheet({silent:true});
+  });
+}
+let _lastPushTs=null;
 function setupAutoSync(){
   if(_autoSyncTimer){clearInterval(_autoSyncTimer);_autoSyncTimer=null;}
   const s=_cache.sync_settings||{};
@@ -2689,6 +2707,7 @@ function App(){
   const handleLogin=async(u)=>{setInitMsg('Loading your data…');setLoading(true);await initFirestore();setUser(u);setLoading(false);};
   const handleLogout=async()=>{
     if(_autoSyncTimer){clearInterval(_autoSyncTimer);_autoSyncTimer=null;}
+    if(_sheetPushUnsub){_sheetPushUnsub();_sheetPushUnsub=null;}
     await auth.signOut();setUser(null);
     _cache={targets:{},tl_targets:{},admin_state:null,tl_notes:{},route_settings:{},live_leads:{},clinic_statuses:{},route_assignments:{},tl_achieved:{},sync_settings:{},loaded:false};
   };
