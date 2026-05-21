@@ -227,6 +227,55 @@ function saveStore(s){
 function loadTLTargets(){return _cache.tl_targets||{};}
 function saveTLTargetsStore(s){_cache.tl_targets=s;db.collection('config').doc('tl_targets').set(s).catch(()=>{});return true;}
 
+// ── GOOGLE SHEETS INTEGRATION ──────────────────────────────────────────────
+const SHEET_SCRIPT_URL='https://script.google.com/a/macros/even.in/s/AKfycbzQ7OKJSOZ30DOWDe1GUk3fx4wBhEuDf4yGtFU7oIlg158OpLEPLyOrL_Qrz3JBeMJn/exec';
+
+async function syncFromGoogleSheet(){
+  const el=document.getElementById('sheetSyncStatus');
+  if(el){el.textContent='Syncing…';el.style.color='#64748B';}
+  try{
+    const resp=await fetch(SHEET_SCRIPT_URL+'?tab=all');
+    if(!resp.ok)throw new Error('HTTP '+resp.status);
+    const data=await resp.json();
+    const tlLookup={};
+    if(data.tlRmMap){
+      data.tlRmMap.forEach(r=>{if(r.RM)tlLookup[r.RM]={tl:r.TL,city:r.City};});
+    }
+    const s=loadStore();
+    const now=new Date().toISOString();
+    if(data.targets){
+      data.targets.forEach(r=>{
+        const rm=r.RM;
+        const tl=r['TL/ATL']||tlLookup[rm]?.tl||'';
+        const city=r.City||tlLookup[rm]?.city||'';
+        if(!rm||!tl)return;
+        const key=safeKey(`${tl}|${rm}`);
+        s[key]={...s[key],tl,rm,city,
+          target:parseFloat(r['Target (INR)'])||0,
+          netAchieved:parseFloat(r['Net Achieved (INR)'])||0,
+          monthlyLeads:parseFloat(r['Monthly Leads Target'])||0,
+          updatedAt:now};
+      });
+    }
+    saveStore(s);
+    const n=data.targets?.length||0;
+    if(el){el.textContent='✅ Synced '+n+' RMs';el.style.color='#16A34A';}
+    setTimeout(()=>{if(el)el.textContent='';},4000);
+  }catch(e){
+    if(el){el.textContent='❌ '+e.message;el.style.color='#DC2626';}
+  }
+}
+
+async function pushPaymentToSheet(date,tl,city,rm,is,amount){
+  try{
+    await fetch(SHEET_SCRIPT_URL,{
+      method:'POST',
+      headers:{'Content-Type':'text/plain'},
+      body:JSON.stringify({action:'addPayment',date,tl,city,rm,is,amount})
+    });
+  }catch(e){console.warn('pushPaymentToSheet:',e);}
+}
+
 // ── RESPONSIVE HOOK ────────────────────────────────────────────────────────
 function useIsMobile(){
   const[m,setM]=useState(window.innerWidth<768);
@@ -2307,6 +2356,18 @@ function AdminPanel(){
               &nbsp;&nbsp;&nbsp;• &gt;10% fewer leads → <span style={{color:B.red,fontWeight:700}}>Declining</span><br/>
               &nbsp;&nbsp;&nbsp;• Within ±10% → <span style={{color:B.blue2,fontWeight:700}}>Stable</span><br/>
               6. When status changes, the RM gets a notification automatically.
+            </div>
+          </Card>
+
+          <Card style={{borderLeft:'4px solid #1b5e20',marginTop:0}}>
+            <div style={{fontWeight:700,fontSize:16,color:'#1b5e20',marginBottom:4}}>Google Sheets Sync</div>
+            <div style={{fontSize:13,color:B.muted,marginBottom:0}}>Pull live targets and achievements from your Google Sheet. Updates all RM data for the current month.</div>
+            <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center',marginTop:12}}>
+              <button onClick={()=>syncFromGoogleSheet()}
+                style={{padding:'10px 20px',background:'#1b5e20',color:'#fff',border:'none',borderRadius:10,fontSize:13,fontWeight:700,cursor:'pointer'}}>
+                Pull from Google Sheet
+              </button>
+              <span id="sheetSyncStatus" style={{fontSize:12.5,color:B.muted}}></span>
             </div>
           </Card>
         </div>}
