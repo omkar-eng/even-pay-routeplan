@@ -270,9 +270,14 @@ async function syncFromGoogleSheet(){
       }
     });
 
-    // Rebuild ALL_RMS fresh from sheet — sheet names replace all hardcoded names
+    // Delete all stale Firestore target docs so old names don't persist after reload
+    const oldKeys=Object.keys(_cache.targets||{});
+    oldKeys.forEach(k=>db.collection('targets').doc(k).delete().catch(()=>{}));
+    _cache.targets={};
+
+    // Rebuild ALL_RMS fresh from sheet — sheet names are the only source of truth
     ALL_RMS.splice(0,ALL_RMS.length);
-    const s=loadStore();const now=new Date().toISOString();
+    const s={};const now=new Date().toISOString();
     rows.forEach(r=>{
       const sheetRM=(r.RM||'').trim();
       const sheetTL=(r['TL/ATL']||'').trim();
@@ -288,7 +293,7 @@ async function syncFromGoogleSheet(){
       };
       ALL_RMS.push(rmObj);
       const key=safeKey(`${sheetTL}|${sheetRM}`);
-      s[key]={...s[key],tl:sheetTL,rm:sheetRM,city:sheetCity,
+      s[key]={tl:sheetTL,rm:sheetRM,city:sheetCity,
         target:rmObj.target,netAchieved:rmObj.achieved,monthlyLeads:rmObj.monthlyTgt,updatedAt:now};
     });
 
