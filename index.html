@@ -228,7 +228,7 @@ function loadTLTargets(){return _cache.tl_targets||{};}
 function saveTLTargetsStore(s){_cache.tl_targets=s;db.collection('config').doc('tl_targets').set(s).catch(()=>{});return true;}
 
 // ── GOOGLE SHEETS INTEGRATION ──────────────────────────────────────────────
-const SHEET_SCRIPT_URL='https://script.google.com/a/macros/even.in/s/AKfycbzQ7OKJSOZ30DOWDe1GUk3fx4wBhEuDf4yGtFU7oIlg158OpLEPLyOrL_Qrz3JBeMJn/exec';
+const SHEET_SCRIPT_URL='https://script.google.com/macros/s/AKfycbzQ7OKJSOZ30DOWDe1GUk3fx4wBhEuDf4yGtFU7oIlg158OpLEPLyOrL_Qrz3JBeMJn/exec';
 
 async function syncFromGoogleSheet(){
   const el=document.getElementById('sheetSyncStatus');
