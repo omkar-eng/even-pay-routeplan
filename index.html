@@ -779,6 +779,61 @@ function Login({onLogin}){
   );
 }
 
+// ── FORCE PASSWORD CHANGE ──────────────────────────────────────────────────
+function ForcePasswordChange({user,onDone}){
+  const[pw,setPw]=useState('');const[pw2,setPw2]=useState('');
+  const[busy,setBusy]=useState(false);const[err,setErr]=useState('');const[showPw,setShowPw]=useState(false);
+  const submit=async()=>{
+    if(pw.length<6){setErr('Password must be at least 6 characters.');return;}
+    if(pw!==pw2){setErr('Passwords do not match.');return;}
+    setBusy(true);setErr('');
+    try{
+      await auth.currentUser.updatePassword(pw);
+      await db.collection('users').doc(user.uid).update({mustChangePassword:false});
+      onDone();
+    }catch(e){
+      setBusy(false);
+      if(e.code==='auth/requires-recent-login'){setErr('Session expired. Please log out and log in again.');}
+      else{setErr('Could not update password. Try again.');}
+    }
+  };
+  return(
+    <div style={{minHeight:'100vh',background:`linear-gradient(160deg,${B.brandDark} 0%,${B.brand} 60%,${B.brandMid} 100%)`,display:'flex',alignItems:'center',justifyContent:'center',padding:20}}>
+      <div style={{width:'100%',maxWidth:380}} className="fade-in">
+        <div style={{textAlign:'center',marginBottom:32}}>
+          <div style={{width:72,height:72,background:'rgba(255,255,255,.15)',borderRadius:20,display:'flex',alignItems:'center',justifyContent:'center',margin:'0 auto 16px'}}>
+            <span style={{fontSize:32,fontWeight:900,color:'#fff',letterSpacing:-1}}>e</span>
+          </div>
+          <div style={{fontSize:28,fontWeight:900,color:'#fff',letterSpacing:-1}}>even</div>
+          <div style={{color:'rgba(255,255,255,.6)',fontSize:13,marginTop:6}}>Sales Operations Platform</div>
+        </div>
+        <div style={{background:B.white,borderRadius:20,padding:28,boxShadow:'0 20px 60px rgba(35,80,255,.25)'}}>
+          <div style={{fontSize:18,fontWeight:700,color:B.ink,marginBottom:6}}>Set your password</div>
+          <div style={{fontSize:13,color:B.muted,marginBottom:20,lineHeight:1.5}}>
+            Hi <strong>{user.name||user.email}</strong>, your account was created by an admin.<br/>
+            Please set a personal password before continuing.
+          </div>
+          {[['New Password',pw,setPw],['Confirm Password',pw2,setPw2]].map(([l,v,s],i)=>(
+            <div key={l} style={{marginBottom:14,position:'relative'}}>
+              <div style={{fontSize:11,fontWeight:600,color:B.muted,marginBottom:5,textTransform:'uppercase',letterSpacing:'.5px'}}>{l}</div>
+              <input value={v} onChange={e=>s(e.target.value)} type={showPw?'text':'password'} placeholder="6+ characters"
+                onKeyDown={e=>e.key==='Enter'&&submit()}
+                style={{width:'100%',padding:'12px 14px',border:`1.5px solid ${B.line}`,borderRadius:12,fontSize:14,outline:'none',boxSizing:'border-box'}}
+                onFocus={e=>e.target.style.borderColor=B.brand} onBlur={e=>e.target.style.borderColor=B.line}/>
+              {i===1&&<button onClick={()=>setShowPw(!showPw)} style={{position:'absolute',right:12,bottom:12,background:'none',border:'none',cursor:'pointer',color:B.muted,fontSize:12,fontWeight:600}}>{showPw?'Hide':'Show'}</button>}
+            </div>
+          ))}
+          {err&&<div style={{color:B.red,fontSize:12,fontWeight:600,marginBottom:12,background:B.redBg,padding:'10px 12px',borderRadius:10}}>⚠️ {err}</div>}
+          <button onClick={submit} disabled={busy} style={{width:'100%',padding:14,background:busy?B.muted:B.brand,color:'#fff',border:'none',borderRadius:12,fontSize:15,fontWeight:700,cursor:'pointer'}}>
+            {busy?'Saving…':'Set Password & Continue →'}
+          </button>
+          <div style={{marginTop:12,fontSize:11,color:B.muted,textAlign:'center'}}>You cannot skip this step.</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── RM VIEW ────────────────────────────────────────────────────────────────
 function RMView({user,onLogout}){
   const[tab,setTab]=useState('clinics');
@@ -1998,7 +2053,7 @@ function UsersTab(){
       const uid=cred.user.uid;
       const userData={name:newUser.name.trim(),email:newUser.email.trim().toLowerCase(),role:newUser.role,
         ...(newUser.role==='rm'||newUser.role==='tl'?{tl:newUser.tl,city:newUser.city}:{}),
-        createdAt:new Date().toISOString()};
+        mustChangePassword:true,createdAt:new Date().toISOString()};
       await db.collection('users').doc(uid).set(userData);
       await secAuth.signOut();
       await secondary.delete();
@@ -2064,7 +2119,7 @@ function UsersTab(){
         const secAuth=secondary.auth();
         const cred=await secAuth.createUserWithEmailAndPassword(p.email,BULK_PASSWORD);
         const uid=cred.user.uid;
-        const userData={name:p.name,email:emailLo,role:p.role,tl:p.tl,city:p.city,createdAt:new Date().toISOString()};
+        const userData={name:p.name,email:emailLo,role:p.role,tl:p.tl,city:p.city,mustChangePassword:true,createdAt:new Date().toISOString()};
         await db.collection('users').doc(uid).set(userData);
         await secAuth.signOut();await secondary.delete();
         setUsers(prev=>[...prev,{id:uid,...userData}]);
@@ -2879,6 +2934,7 @@ function App(){
   };
   if(loading)return <LoadingScreen message={initMsg}/>;
   if(!user)return <Login onLogin={handleLogin}/>;
+  if(user.mustChangePassword)return <ForcePasswordChange user={user} onDone={()=>setUser({...user,mustChangePassword:false})}/>;
   const role=user.role;
   if(role==='zonal'||role==='admin')return <FullAccessView user={user} onLogout={handleLogout}/>;
   if(role==='tl')return <TLView user={user} onLogout={handleLogout}/>;
