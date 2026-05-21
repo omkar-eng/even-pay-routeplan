@@ -314,8 +314,10 @@ async function syncFromGoogleSheet(){
     saveStore(s);
     window.dispatchEvent(new Event('rmDataUpdated'));
     const total=Object.values(payByRM).reduce((s,v)=>s+v,0);
-    if(el){el.textContent='✅ Synced '+rows.length+' RMs · ₹'+total.toLocaleString('en-IN')+' collected';el.style.color='#16A34A';}
-    setTimeout(()=>{if(el)el.textContent='';},5000);
+    console.log('[SYNC] payByRM total:',total,'ZONE.achieved:',ZONE.achieved,'ALL_RMS count:',ALL_RMS.length);
+    console.log('[SYNC] ZONE.tls achieved breakdown:',ZONE.tls.map(t=>t.name+':'+t.achieved));
+    if(el){el.textContent='✅ Synced '+rows.length+' RMs · Pay:₹'+total.toLocaleString('en-IN')+' Zone:₹'+ZONE.achieved.toLocaleString('en-IN');el.style.color='#16A34A';}
+    setTimeout(()=>{if(el)el.textContent='';},8000);
   }catch(e){
     if(el){el.textContent='❌ '+e.message;el.style.color='#DC2626';}
   }
