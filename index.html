@@ -51,7 +51,8 @@ const db=firebase.firestore();
 const ROLE_MAP={'omkar@even.in':{role:'admin',name:'Admin (Omkar)',city:'Pune'}};
 
 // ── DATA LAYER ─────────────────────────────────────────────────────────────
-let _cache={targets:{},tl_targets:{},admin_state:null,tl_notes:{},route_settings:{},live_leads:{},clinic_statuses:{},route_assignments:{},loaded:false};
+let _cache={targets:{},tl_targets:{},admin_state:null,tl_notes:{},route_settings:{},live_leads:{},clinic_statuses:{},route_assignments:{},tl_achieved:{},sync_settings:{},loaded:false};
+let _autoSyncTimer=null;
 const safeKey=k=>k.replace(/[^a-zA-Z0-9_-]/g,'_');
 const clinicKey=(rm,clinic)=>safeKey(`${rm}__${clinic}`);
 
@@ -214,11 +215,20 @@ async function initFirestore(){
       if(d.id==='clinic_statuses')_cache.clinic_statuses=d.data()||{};
       if(d.id==='route_assignments')_cache.route_assignments=d.data()||{};
       if(d.id==='tl_achieved')_cache.tl_achieved=d.data()||{};
+      if(d.id==='sync_settings')_cache.sync_settings=d.data()||{};
     });
   }catch(e){console.warn('Firestore:',e);}
   await loadClinicNotes();
   _cache.loaded=true;
   applyStoreToRMs();
+  setupAutoSync();
+}
+function setupAutoSync(){
+  if(_autoSyncTimer){clearInterval(_autoSyncTimer);_autoSyncTimer=null;}
+  const s=_cache.sync_settings||{};
+  if(!s.enabled)return;
+  const ms=(s.intervalMin||30)*60*1000;
+  _autoSyncTimer=setInterval(()=>syncFromGoogleSheet({silent:true}),ms);
 }
 function loadStore(){return _cache.targets||{};}
 async function saveStore(s){
@@ -274,9 +284,9 @@ function buildRMPayments(payByRM, targetRMNames){
   return{rmPayments,rmDisplayName};
 }
 
-async function syncFromGoogleSheet(){
+async function syncFromGoogleSheet({silent=false}={}){
   const el=document.getElementById('sheetSyncStatus');
-  if(el){el.textContent='Syncing…';el.style.color='#64748B';}
+  if(el){el.textContent=silent?'Auto-syncing…':'Syncing…';el.style.color='#64748B';}
   try{
     const bust='&_='+Date.now();
     const [jTargets,jPayments]=await Promise.all([
@@ -376,9 +386,23 @@ async function syncFromGoogleSheet(){
     const tlAchMap={};
     ZONE.tls.forEach(tl=>{tlAchMap[safeKey(tl.name)]={name:tl.name,city:tl.city,achieved:tl.achieved,target:tl.target};});
     await Promise.all([saveStore(s),db.collection('config').doc('tl_achieved').set(tlAchMap).catch(e=>console.warn('tl_achieved write:',e))]);
-    const sampleNames=rows.slice(0,3).map(r=>(r.RM||'').trim()).join(', ');
-    if(el){el.textContent='✅ Synced '+rows.length+' RMs · ₹'+total.toLocaleString('en-IN')+' | Sheet: '+sampleNames+' … — reloading…';el.style.color='#16A34A';}
-    setTimeout(()=>window.location.reload(),1500);
+    const syncedAt=new Date().toISOString();
+    _cache.sync_settings={..._cache.sync_settings,lastSynced:syncedAt};
+    await Promise.all([
+      saveStore(s),
+      db.collection('config').doc('tl_achieved').set(tlAchMap).catch(e=>console.warn('tl_achieved write:',e)),
+      db.collection('config').doc('sync_settings').set(_cache.sync_settings).catch(()=>{}),
+    ]);
+    if(silent){
+      applyStoreToRMs();
+      window.dispatchEvent(new Event('rmDataUpdated'));
+      const t=new Date().toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'});
+      if(el){el.textContent='✅ Auto-synced at '+t+' · ₹'+total.toLocaleString('en-IN');el.style.color='#16A34A';}
+    }else{
+      const sampleNames=rows.slice(0,3).map(r=>(r.RM||'').trim()).join(', ');
+      if(el){el.textContent='✅ Synced '+rows.length+' RMs · ₹'+total.toLocaleString('en-IN')+' | Sheet: '+sampleNames+' … — reloading…';el.style.color='#16A34A';}
+      setTimeout(()=>window.location.reload(),1500);
+    }
   }catch(e){
     if(el){el.textContent='❌ '+e.message;el.style.color='#DC2626';}
   }
@@ -2071,6 +2095,13 @@ function AdminPanel(){
   const[sheetUrl,setSheetUrl]=useState(_cache.route_settings?.sheetUrl||'');
   const[routeSyncing,setRouteSyncing]=useState(false);
   const[routeSyncMsg,setRouteSyncMsg]=useState('');
+  // ── Auto-sync state ──
+  const[autoSyncEnabled,setAutoSyncEnabled]=useState(!!_cache.sync_settings?.enabled);
+  const[syncIntervalMin,setSyncIntervalMin]=useState(_cache.sync_settings?.intervalMin||30);
+  const[autoSyncMsg,setAutoSyncMsg]=useState('');
+  const lastSynced=_cache.sync_settings?.lastSynced
+    ?new Date(_cache.sync_settings.lastSynced).toLocaleString('en-IN',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})
+    :null;
 
   // ── Clinic management state ──
   const[workingClinics,setWorkingClinics]=useState(()=>ALL_RMS.flatMap(r=>r.clinics.map(c=>({...c,rm:r.rm,tl:r.tl,city:r.city}))));
@@ -2128,6 +2159,14 @@ function AdminPanel(){
     }catch(e){setRouteSyncMsg('Sync failed — verify the URL and that the sheet is published as CSV');}
     setRouteSyncing(false);
     setTimeout(()=>setRouteSyncMsg(''),6000);
+  };
+
+  const handleSaveAutoSync=async()=>{
+    const settings={..._cache.sync_settings,enabled:autoSyncEnabled,intervalMin:Number(syncIntervalMin)};
+    _cache.sync_settings=settings;
+    await db.collection('config').doc('sync_settings').set(settings).catch(()=>{});
+    setupAutoSync();
+    setAutoSyncMsg('✅ Saved!');setTimeout(()=>setAutoSyncMsg(''),3000);
   };
 
   // ── RM Actions ──
@@ -2533,12 +2572,45 @@ function AdminPanel(){
           <Card style={{borderLeft:'4px solid #1b5e20',marginTop:0}}>
             <div style={{fontWeight:700,fontSize:16,color:'#1b5e20',marginBottom:4}}>Google Sheets Sync</div>
             <div style={{fontSize:13,color:B.muted,marginBottom:0}}>Pull live targets and achievements from your Google Sheet. Updates all RM data for the current month.</div>
+            {lastSynced&&<div style={{fontSize:12,color:B.muted,marginTop:6}}>Last synced: {lastSynced}</div>}
             <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center',marginTop:12}}>
               <button onClick={()=>syncFromGoogleSheet()}
                 style={{padding:'10px 20px',background:'#1b5e20',color:'#fff',border:'none',borderRadius:10,fontSize:13,fontWeight:700,cursor:'pointer'}}>
                 Pull from Google Sheet
               </button>
               <span id="sheetSyncStatus" style={{fontSize:12.5,color:B.muted}}></span>
+            </div>
+          </Card>
+
+          <Card style={{borderLeft:`4px solid ${B.brand}`,marginTop:16}}>
+            <div style={{fontWeight:700,fontSize:16,color:B.navy,marginBottom:4}}>Auto-sync</div>
+            <div style={{fontSize:13,color:B.muted,marginBottom:16}}>Automatically pull the latest data from your Google Sheet at a set interval whenever the app is open.</div>
+            <div style={{display:'flex',gap:16,alignItems:'center',marginBottom:14,flexWrap:'wrap'}}>
+              <label style={{display:'flex',alignItems:'center',gap:8,cursor:'pointer',fontWeight:600,fontSize:13}}>
+                <input type="checkbox" checked={autoSyncEnabled} onChange={e=>setAutoSyncEnabled(e.target.checked)}
+                  style={{width:16,height:16,cursor:'pointer'}}/>
+                Enable auto-sync
+              </label>
+              {autoSyncEnabled&&<div style={{display:'flex',alignItems:'center',gap:8}}>
+                <span style={{fontSize:13,color:B.muted}}>Sync every</span>
+                <select value={syncIntervalMin} onChange={e=>setSyncIntervalMin(Number(e.target.value))}
+                  style={{padding:'7px 10px',border:`1.5px solid ${B.line}`,borderRadius:8,fontSize:13,background:B.white,outline:'none',cursor:'pointer'}}>
+                  <option value={15}>15 minutes</option>
+                  <option value={30}>30 minutes</option>
+                  <option value={60}>1 hour</option>
+                  <option value={120}>2 hours</option>
+                </select>
+              </div>}
+            </div>
+            {autoSyncEnabled&&<div style={{fontSize:12,color:B.muted,background:B.brandLight,borderRadius:8,padding:'8px 12px',marginBottom:14}}>
+              The app will silently fetch fresh data from your sheet every {syncIntervalMin} minute{syncIntervalMin>1?'s':''} while it is open. No page reload — views update automatically.
+            </div>}
+            <div style={{display:'flex',gap:10,alignItems:'center'}}>
+              <button onClick={handleSaveAutoSync}
+                style={{padding:'9px 20px',background:B.brand,color:'#fff',border:'none',borderRadius:10,fontSize:13,fontWeight:700,cursor:'pointer'}}>
+                Save Settings
+              </button>
+              {autoSyncMsg&&<span style={{fontSize:13,color:autoSyncMsg.includes('✅')?B.green:B.red,fontWeight:600}}>{autoSyncMsg}</span>}
             </div>
           </Card>
         </div>}
@@ -2615,7 +2687,11 @@ function App(){
     return()=>unsub();
   },[]);
   const handleLogin=async(u)=>{setInitMsg('Loading your data…');setLoading(true);await initFirestore();setUser(u);setLoading(false);};
-  const handleLogout=async()=>{await auth.signOut();setUser(null);_cache={targets:{},tl_targets:{},admin_state:null,tl_notes:{},loaded:false};};
+  const handleLogout=async()=>{
+    if(_autoSyncTimer){clearInterval(_autoSyncTimer);_autoSyncTimer=null;}
+    await auth.signOut();setUser(null);
+    _cache={targets:{},tl_targets:{},admin_state:null,tl_notes:{},route_settings:{},live_leads:{},clinic_statuses:{},route_assignments:{},tl_achieved:{},sync_settings:{},loaded:false};
+  };
   if(loading)return <LoadingScreen message={initMsg}/>;
   if(!user)return <Login onLogin={handleLogin}/>;
   const role=user.role;
