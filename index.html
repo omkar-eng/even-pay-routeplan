@@ -2097,19 +2097,18 @@ function AdminPanel(){
       ...Object.fromEntries(Object.entries(form).map(([k,v])=>[k,parseFloat(v)||0])),
       updated:new Date().toLocaleString('en-IN'),updatedAt:Date.now()};
     const newT={...targets,[key]:entry};
-    saveStore(newT);setTargets(newT);
+    await saveStore(newT);setTargets(newT);
+    applyStoreToRMs();window.dispatchEvent(new Event('rmDataUpdated'));
     setSaving('✅ Saved to Firebase!');
     setTimeout(()=>setSaving(''),3000);
   };
 
-  const saveRMsToFirebase=async(rms)=>{
-    try{ await db.collection('config').doc('rm_assignments').set({rms,updatedAt:new Date().toISOString()}); }
-    catch(e){ console.warn('RM save failed:',e); }
-  };
-
-  const saveClinicsToFirebase=async(clinics)=>{
-    try{ await db.collection('config').doc('clinic_assignments').set({clinics,updatedAt:new Date().toISOString()}); }
-    catch(e){ console.warn('Clinic save failed:',e); }
+  // Write one RM's data directly to targets collection
+  const saveRMDoc=async(tl,rm,patch)=>{
+    const key=safeKey(`${tl}|${rm}`);
+    const doc={...(_cache.targets[key]||{}),tl,rm,...patch,updatedAt:new Date().toISOString()};
+    await db.collection('targets').doc(key).set(doc);
+    _cache.targets[key]=doc;
   };
 
   // ── Route Sync actions ──
@@ -2134,64 +2133,117 @@ function AdminPanel(){
   // ── RM Actions ──
   const handleAddRM=async()=>{
     if(!newRM.rm.trim()||!newRM.tl){setRmSaving('Fill in all fields');return;}
-    if(workingRMs.find(r=>r.rm.toLowerCase()===newRM.rm.toLowerCase())){setRmSaving('RM already exists');return;}
+    const rmName=newRM.rm.trim();
+    if(workingRMs.find(r=>r.rm.toLowerCase()===rmName.toLowerCase())){setRmSaving('RM already exists');return;}
     setRmSaving('Saving…');
-    const updated=[...workingRMs,{...newRM,rm:newRM.rm.trim(),leads:0,clinics:[],target:0,achieved:0,refund:0,monthlyTgt:0,monthlyAchv:0,dailyTgt:0,dailyAchv:0,renewalTgt:0,renewalAchv:0}];
-    setWorkingRMs(updated);
-    await saveRMsToFirebase(updated);
-    setNewRM({rm:'',tl:'',city:'Pune'});setShowAddRM(false);
-    setRmSaving('✅ RM added!');setTimeout(()=>setRmSaving(''),3000);
+    try{
+      await saveRMDoc(newRM.tl,rmName,{city:newRM.city,target:0,netAchieved:0,monthlyLeads:0,clinics:[]});
+      const updated=[...workingRMs,{rm:rmName,tl:newRM.tl,city:newRM.city,leads:0,clinics:[],target:0,achieved:0,refund:0,monthlyTgt:0,monthlyAchv:0,dailyTgt:0,dailyAchv:0,renewalTgt:0,renewalAchv:0}];
+      setWorkingRMs(updated);
+      applyStoreToRMs();window.dispatchEvent(new Event('rmDataUpdated'));
+      setNewRM({rm:'',tl:'',city:'Pune'});setShowAddRM(false);
+      setRmSaving('✅ RM added!');setTimeout(()=>setRmSaving(''),3000);
+    }catch(e){setRmSaving('❌ Save failed');setTimeout(()=>setRmSaving(''),3000);}
   };
 
   const handleEditRM=async()=>{
     if(!editRM)return;
+    const newName=(editRM.rmName||'').trim();
+    if(!newName){setRmSaving('Name cannot be empty');return;}
     setRmSaving('Saving…');
-    const updated=workingRMs.map((r,i)=>i===editRM.index?{...r,tl:editRM.tl,city:editRM.city}:r);
-    setWorkingRMs(updated);
-    await saveRMsToFirebase(updated);
-    setEditRM(null);
-    setRmSaving('✅ Updated!');setTimeout(()=>setRmSaving(''),3000);
+    try{
+      const oldRM=workingRMs[editRM.index];
+      const oldKey=safeKey(`${oldRM.tl}|${oldRM.rm}`);
+      const newKey=safeKey(`${editRM.tl}|${newName}`);
+      const existingData=_cache.targets[oldKey]||{};
+      // Delete old doc if key changed (name or TL changed)
+      if(oldKey!==newKey){
+        await db.collection('targets').doc(oldKey).delete();
+        delete _cache.targets[oldKey];
+      }
+      await saveRMDoc(editRM.tl,newName,{city:editRM.city,netAchieved:existingData.netAchieved||0,target:existingData.target||0,monthlyLeads:existingData.monthlyLeads||0,clinics:existingData.clinics||[]});
+      applyStoreToRMs();window.dispatchEvent(new Event('rmDataUpdated'));
+      const updated=workingRMs.map((r,i)=>i===editRM.index?{...r,rm:newName,tl:editRM.tl,city:editRM.city}:r);
+      setWorkingRMs(updated);
+      setEditRM(null);
+      setRmSaving('✅ Updated!');setTimeout(()=>setRmSaving(''),3000);
+    }catch(e){setRmSaving('❌ Save failed');setTimeout(()=>setRmSaving(''),3000);}
   };
 
-  const handleRemoveRM=(index)=>{
+  const handleRemoveRM=async(index)=>{
     const rm=workingRMs[index];
     if(rm.clinics&&rm.clinics.length>0){alert(`${rm.rm} has ${rm.clinics.length} clinic(s). Reassign clinics first.`);return;}
     if(!window.confirm(`Remove ${rm.rm} from the system? This cannot be undone.`))return;
-    const updated=workingRMs.filter((_,i)=>i!==index);
-    setWorkingRMs(updated);
-    saveRMsToFirebase(updated);
+    const key=safeKey(`${rm.tl}|${rm.rm}`);
+    await db.collection('targets').doc(key).delete().catch(()=>{});
+    delete _cache.targets[key];
+    applyStoreToRMs();window.dispatchEvent(new Event('rmDataUpdated'));
+    setWorkingRMs(workingRMs.filter((_,i)=>i!==index));
     setRmSaving('✅ RM removed');setTimeout(()=>setRmSaving(''),3000);
   };
 
   // ── Clinic Actions ──
-  const handleReassignClinic=(clinicIndex,newRMName)=>{
+  // Helper: persist the clinic list for one RM's targets doc
+  const saveClinicList=async(tl,rmName,clinics)=>{
+    await saveRMDoc(tl,rmName,{clinics});
+  };
+
+  const handleReassignClinic=async(clinicIndex,newRMName)=>{
+    if(workingClinics[clinicIndex].rm===newRMName)return;
+    const flat=workingClinics[clinicIndex];
     const newRMObj=workingRMs.find(r=>r.rm===newRMName);
-    const updated=workingClinics.map((c,i)=>i===clinicIndex?{...c,rm:newRMName,tl:newRMObj?.tl||c.tl,city:newRMObj?.city||c.city}:c);
-    setWorkingClinics(updated);
-    saveClinicsToFirebase(updated);
-    setClinicSaving('✅ Reassigned!');setTimeout(()=>setClinicSaving(''),3000);
+    if(!newRMObj)return;
+    setClinicSaving('Saving…');
+    try{
+      const clinicData={name:flat.name,locality:flat.locality||'',status:flat.status,freq:flat.freq,slot:flat.slot||'',leads:flat.leads||0};
+      // Remove from old RM's doc
+      const oldRMObj=workingRMs.find(r=>r.rm===flat.rm);
+      if(oldRMObj){
+        const oldKey=safeKey(`${oldRMObj.tl}|${oldRMObj.rm}`);
+        const oldClinics=(_cache.targets[oldKey]?.clinics||[]).filter(c=>c.name!==flat.name);
+        await saveClinicList(oldRMObj.tl,oldRMObj.rm,oldClinics);
+      }
+      // Add to new RM's doc
+      const newKey=safeKey(`${newRMObj.tl}|${newRMObj.rm}`);
+      const newClinics=[...(_cache.targets[newKey]?.clinics||[]).filter(c=>c.name!==flat.name),clinicData];
+      await saveClinicList(newRMObj.tl,newRMObj.rm,newClinics);
+      applyStoreToRMs();window.dispatchEvent(new Event('rmDataUpdated'));
+      setWorkingClinics(workingClinics.map((c,i)=>i===clinicIndex?{...c,rm:newRMName,tl:newRMObj.tl,city:newRMObj.city}:c));
+      setClinicSaving('✅ Reassigned!');setTimeout(()=>setClinicSaving(''),3000);
+    }catch(e){setClinicSaving('❌ Save failed');setTimeout(()=>setClinicSaving(''),3000);}
   };
 
   const handleAddClinic=async()=>{
     if(!newClinic.name.trim()||!newClinic.rm){setClinicSaving('Fill clinic name and assign RM');return;}
     setClinicSaving('Saving…');
-    const rmObj=workingRMs.find(r=>r.rm===newClinic.rm);
-    const clinic={...newClinic,name:newClinic.name.trim(),tl:rmObj?.tl||'',city:rmObj?.city||newClinic.city};
-    const updated=[...workingClinics,clinic];
-    setWorkingClinics(updated);
-    await saveClinicsToFirebase(updated);
-    setNewClinic({name:'',locality:'',rm:'',city:'Pune',status:'Stable',freq:'Tri-weekly',slot:'',leads:0});
-    setShowAddClinic(false);
-    setClinicSaving('✅ Clinic added!');setTimeout(()=>setClinicSaving(''),3000);
+    try{
+      const rmObj=workingRMs.find(r=>r.rm===newClinic.rm);
+      const clinicData={name:newClinic.name.trim(),locality:newClinic.locality||'',status:newClinic.status,freq:newClinic.freq,slot:newClinic.slot||'',leads:newClinic.leads||0};
+      const key=safeKey(`${rmObj.tl}|${rmObj.rm}`);
+      const existing=(_cache.targets[key]?.clinics||[]);
+      await saveClinicList(rmObj.tl,rmObj.rm,[...existing,clinicData]);
+      applyStoreToRMs();window.dispatchEvent(new Event('rmDataUpdated'));
+      setWorkingClinics([...workingClinics,{...clinicData,rm:rmObj.rm,tl:rmObj.tl,city:rmObj.city}]);
+      setNewClinic({name:'',locality:'',rm:'',city:'Pune',status:'Stable',freq:'Tri-weekly',slot:'',leads:0});
+      setShowAddClinic(false);
+      setClinicSaving('✅ Clinic added!');setTimeout(()=>setClinicSaving(''),3000);
+    }catch(e){setClinicSaving('❌ Save failed');setTimeout(()=>setClinicSaving(''),3000);}
   };
 
-  const handleRemoveClinic=(index)=>{
-    const c=workingClinics[index];
-    if(!window.confirm(`Remove ${c.name} from route plan?`))return;
-    const updated=workingClinics.filter((_,i)=>i!==index);
-    setWorkingClinics(updated);
-    saveClinicsToFirebase(updated);
-    setClinicSaving('✅ Clinic removed');setTimeout(()=>setClinicSaving(''),3000);
+  const handleRemoveClinic=async(index)=>{
+    const flat=workingClinics[index];
+    if(!window.confirm(`Remove ${flat.name} from route plan?`))return;
+    try{
+      const rmObj=workingRMs.find(r=>r.rm===flat.rm);
+      if(rmObj){
+        const key=safeKey(`${rmObj.tl}|${rmObj.rm}`);
+        const updated=(_cache.targets[key]?.clinics||[]).filter(c=>c.name!==flat.name);
+        await saveClinicList(rmObj.tl,rmObj.rm,updated);
+      }
+      applyStoreToRMs();window.dispatchEvent(new Event('rmDataUpdated'));
+      setWorkingClinics(workingClinics.filter((_,i)=>i!==index));
+      setClinicSaving('✅ Clinic removed');setTimeout(()=>setClinicSaving(''),3000);
+    }catch(e){setClinicSaving('❌ Save failed');setTimeout(()=>setClinicSaving(''),3000);}
   };
 
   const filteredRMs=workingRMs.filter(r=>!rmSearch||r.rm.toLowerCase().includes(rmSearch.toLowerCase())||r.tl.toLowerCase().includes(rmSearch.toLowerCase()));
@@ -2295,8 +2347,11 @@ function AdminPanel(){
 
           {/* Edit RM modal */}
           {editRM&&<Card style={{marginBottom:14,borderLeft:`4px solid ${B.amber}`}}>
-            <div style={{fontWeight:700,fontSize:14,color:B.amber,marginBottom:12}}>Edit: {editRM.rm}</div>
+            <div style={{fontWeight:700,fontSize:14,color:B.amber,marginBottom:12}}>Edit RM: {editRM.rm}</div>
             <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(160px,1fr))',gap:10,marginBottom:12}}>
+              <div><div style={{fontSize:11,color:B.muted,marginBottom:4,fontWeight:600,textTransform:'uppercase'}}>Name</div>
+                {inp(editRM.rmName,v=>setEditRM({...editRM,rmName:v}),'RM full name')}
+              </div>
               <div><div style={{fontSize:11,color:B.muted,marginBottom:4,fontWeight:600,textTransform:'uppercase'}}>Reassign to TL</div>
                 {sel(editRM.tl,v=>setEditRM({...editRM,tl:v}),workingTLs)}
               </div>
@@ -2324,9 +2379,9 @@ function AdminPanel(){
                     <td className="num">{r.leads||0}</td>
                     <td>
                       <div style={{display:'flex',gap:6}}>
-                        <button onClick={()=>setEditRM({index:i,rm:r.rm,tl:r.tl,city:r.city})}
+                        <button onClick={()=>setEditRM({index:i,rm:r.rm,rmName:r.rm,tl:r.tl,city:r.city})}
                           style={{padding:'5px 12px',background:B.brandLight,color:B.brand,border:'none',borderRadius:8,fontSize:12,fontWeight:600,cursor:'pointer'}}>
-                          ✏️ Edit TL
+                          ✏️ Edit
                         </button>
                         <button onClick={()=>handleRemoveRM(i)}
                           style={{padding:'5px 12px',background:B.redBg,color:B.red,border:'none',borderRadius:8,fontSize:12,fontWeight:600,cursor:'pointer',marginLeft:6}}>
