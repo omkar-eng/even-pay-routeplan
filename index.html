@@ -270,9 +270,9 @@ async function syncFromGoogleSheet(){
       }
     });
 
-    // Delete all stale Firestore target docs so old names don't persist after reload
-    const oldKeys=Object.keys(_cache.targets||{});
-    await Promise.all(oldKeys.map(k=>db.collection('targets').doc(k).delete().catch(()=>{})));
+    // Delete ALL Firestore target docs (fresh query — do not rely on cache)
+    const liveSnap=await db.collection('targets').get();
+    await Promise.all(liveSnap.docs.map(d=>d.ref.delete().catch(()=>{})));
     _cache.targets={};
 
     // Rebuild ALL_RMS fresh from sheet — sheet names are the only source of truth
