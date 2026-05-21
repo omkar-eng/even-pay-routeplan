@@ -274,11 +274,29 @@ function _editDist(a,b){
 //   rmDisplayName[targetNameLower] = fullest payment-tab name found
 function parsePayDate(s){
   if(!s)return null;s=String(s).trim();
+  // DD/MM/YYYY or DD-MM-YYYY or DD.MM.YYYY
   const m1=s.match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{4})$/);
   if(m1)return new Date(+m1[3],+m1[2]-1,+m1[1]);
+  // YYYY-MM-DD (ISO, with or without time component)
   const m2=s.match(/^(\d{4})-(\d{2})-(\d{2})/);
   if(m2)return new Date(+m2[1],+m2[2]-1,+m2[3]);
+  // MM/DD/YYYY (US format fallback)
+  const m3=s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if(m3){const d=new Date(+m3[3],+m3[2]-1,+m3[1]);if(!isNaN(d))return d;}
   const d=new Date(s);return isNaN(d.getTime())?null:d;
+}
+let _payDateKey=null; // cached column name, reset on each sync
+function detectPayDateKey(rows){
+  if(!rows||!rows.length)return null;
+  const KNOWN=['Date','Payment Date','date','DATE','Pmt Date','PaymentDate','PAYMENT DATE','payment_date','Trans Date','Transaction Date'];
+  const first=rows[0];
+  for(const k of KNOWN){if(first[k]!==undefined&&parsePayDate(String(first[k]||'').trim()))return k;}
+  // fallback: scan all keys for one whose value parses as a date
+  for(const k of Object.keys(first)){
+    const v=String(first[k]||'').trim();
+    if(v&&parsePayDate(v)&&isNaN(Number(v)))return k;
+  }
+  return null;
 }
 function getDateRangeFromLabel(label){
   const t=new Date();const y=t.getFullYear(),m=t.getMonth();
@@ -374,8 +392,9 @@ async function syncFromGoogleSheet({silent=false}={}){
       for(const t2 of targetRMNames){const d=_editDist(kfw,t2.toLowerCase().split(/\s+/)[0]);if(d<=1&&d<bestD){bestD=d;bestT=t2;}}
       if(bestT)rawToTarget[k]=bestT.toLowerCase();
     }
+    _payDateKey=detectPayDateKey(paymentRows);
     const rawPayRows=paymentRows.map(p=>({
-      date:(p['Date']||p['Payment Date']||p['date']||p['DATE']||p['payment_date']||'').trim(),
+      date:_payDateKey?String(p[_payDateKey]||'').trim():'',
       rm:rawToTarget[(p['Rm Name']||'').trim().toLowerCase()]||(p['Rm Name']||'').trim().toLowerCase(),
       tl:(p['ATL/TL Name']||'').trim().toLowerCase(),
       amount:parseFloat(p.Amount)||0
@@ -452,7 +471,8 @@ async function syncFromGoogleSheet({silent=false}={}){
     ZONE.achieved=ZONE.tls.reduce((s,t)=>s+t.achieved,0);
 
     const total=Object.values(payByTL).reduce((s,v)=>s+v,0);
-    if(el){el.textContent='💾 Saving '+rows.length+' RMs…';el.style.color='#64748B';}
+    const datedCount=rawPayRows.filter(r=>r.date).length;
+    if(el){el.textContent=`💾 Saving ${rows.length} RMs · ${datedCount}/${rawPayRows.length} dated payments${_payDateKey?' (col: '+_payDateKey+')':''}…`;el.style.color='#64748B';}
     const tlAchMap={};
     ZONE.tls.forEach(tl=>{tlAchMap[safeKey(tl.name)]={name:tl.name,city:tl.city,achieved:tl.achieved,target:tl.target};});
     await Promise.all([saveStore(s),db.collection('config').doc('tl_achieved').set(tlAchMap).catch(e=>console.warn('tl_achieved write:',e))]);
@@ -1083,11 +1103,11 @@ function TLView({user,onLogout}){
   const isMobile=useIsMobile();
   const myRMs=ALL_RMS.filter(r=>r.tl===user.name);
   const tgt=myRMs.reduce((s,r)=>s+r.target,0);
-  const filtData=React.useMemo(()=>{
+  const filtData=(()=>{
     if(dateRange==='All Time')return null;
     if(dateRange==='Custom'){if(!customFrom||!customTo)return null;return computeFilteredPayments(new Date(customFrom),new Date(customTo));}
     const r=getDateRangeFromLabel(dateRange);return r?computeFilteredPayments(r.from,r.to):null;
-  },[dateRange,customFrom,customTo]);
+  })();
   const ach=filtData?myRMs.reduce((s,r)=>s+(filtData.rmPayments[r.rm.toLowerCase()]||0),0):myRMs.reduce((s,r)=>s+r.achieved,0);
 
   const TeamView=()=>{
@@ -1151,8 +1171,11 @@ function TLView({user,onLogout}){
             </div>}
           </div>
           </div>
-          {filtData&&<div style={{background:B.brandLight,border:`1px solid ${B.brand}`,borderRadius:10,padding:'8px 14px',marginBottom:16,fontSize:12,color:B.brand,fontWeight:600}}>
-            Showing payments for: <strong>{dateRange==='Custom'?`${customFrom} to ${customTo}`:dateRange}</strong> — Total: <strong>{fmt(filtData.total)}</strong> across {filtData.rows.length} payments
+          {filtData&&(_cache.payment_rows||[]).length===0&&<div style={{background:'#fffbea',border:`1px solid #fde68a`,borderRadius:10,padding:'8px 14px',marginBottom:12,fontSize:12,color:B.amber,fontWeight:600}}>
+            No payment data loaded yet — run a sync first to enable date filtering.
+          </div>}
+          {filtData&&(_cache.payment_rows||[]).length>0&&<div style={{background:B.brandLight,border:`1px solid ${B.brand}`,borderRadius:10,padding:'8px 14px',marginBottom:16,fontSize:12,color:B.brand,fontWeight:600}}>
+            Showing payments for: <strong>{dateRange==='Custom'?`${customFrom} to ${customTo}`:dateRange}</strong> — Total: <strong>{fmt(filtData.total)}</strong> across {filtData.rows.length} payment{filtData.rows.length!==1?'s':''}
           </div>}
           {behind.length>0&&<div style={{background:B.redBg,borderLeft:`4px solid ${B.red}`,borderRadius:14,padding:'12px 14px',marginBottom:20}}>
             <div style={{color:B.red,fontWeight:700}}>⚠️ Behind target: {behind.map(r=>r.rm).join(', ')}</div>
@@ -1654,11 +1677,11 @@ function AllTeamsPanel(){
   const[,_forceUpdate]=useState(0);
   useEffect(()=>{const h=()=>_forceUpdate(v=>v+1);window.addEventListener('rmDataUpdated',h);return()=>window.removeEventListener('rmDataUpdated',h);},[]);
   const isMobile=useIsMobile();
-  const filtData=React.useMemo(()=>{
+  const filtData=(()=>{
     if(dateRange==='All Time')return null;
     if(dateRange==='Custom'){if(!customFrom||!customTo)return null;return computeFilteredPayments(new Date(customFrom),new Date(customTo));}
     const r=getDateRangeFromLabel(dateRange);return r?computeFilteredPayments(r.from,r.to):null;
-  },[dateRange,customFrom,customTo]);
+  })();
   const tls=ZONE.tls.filter(t=>cityF==='All'||t.city===cityF);
   const totTarget=tls.reduce((s,t)=>s+t.target,0);
   const totAchv=filtData?tls.reduce((s,t)=>s+(filtData.tlPayments[t.name.toLowerCase()]||0),0):tls.reduce((s,t)=>s+t.achieved,0);
@@ -1751,8 +1774,11 @@ function AllTeamsPanel(){
           </div>}
         </div>
       </div>
-      {filtData&&<div style={{background:B.brandLight,border:`1px solid ${B.brand}`,borderRadius:10,padding:'8px 14px',marginBottom:16,fontSize:12,color:B.brand,fontWeight:600}}>
-        Showing payments for: <strong>{dateRange==='Custom'?`${customFrom} to ${customTo}`:dateRange}</strong> — Total: <strong>{fmt(filtData.total)}</strong> across {filtData.rows.length} payments
+      {filtData&&(_cache.payment_rows||[]).length===0&&<div style={{background:'#fffbea',border:`1px solid #fde68a`,borderRadius:10,padding:'8px 14px',marginBottom:12,fontSize:12,color:B.amber,fontWeight:600}}>
+        No payment data loaded yet — run a sync first to enable date filtering.
+      </div>}
+      {filtData&&(_cache.payment_rows||[]).length>0&&<div style={{background:B.brandLight,border:`1px solid ${B.brand}`,borderRadius:10,padding:'8px 14px',marginBottom:16,fontSize:12,color:B.brand,fontWeight:600}}>
+        Showing payments for: <strong>{dateRange==='Custom'?`${customFrom} to ${customTo}`:dateRange}</strong> — Total: <strong>{fmt(filtData.total)}</strong> across {filtData.rows.length} payment{filtData.rows.length!==1?'s':''}
       </div>}
       <div style={{display:'flex',gap:16,marginBottom:24}}>
         <StatCard title="Zone Target" value={fmt(totTarget)} icon="🎯"/>
