@@ -234,11 +234,13 @@ async function syncFromGoogleSheet(){
   const el=document.getElementById('sheetSyncStatus');
   if(el){el.textContent='Syncing…';el.style.color='#64748B';}
   try{
-    const resp=await fetch(SHEET_SCRIPT_URL+'?tab=all');
-    if(!resp.ok)throw new Error('HTTP '+resp.status);
-    const json=await resp.json();
-    if(json.status!=='ok')throw new Error(json.message||'Script error');
-    const data=json.data;
+    const [jTargets,jMap]=await Promise.all([
+      fetch(SHEET_SCRIPT_URL+'?tab=targets').then(r=>r.json()),
+      fetch(SHEET_SCRIPT_URL+'?tab=tlRmMap').then(r=>r.json()),
+    ]);
+    if(jTargets.status!=='ok')throw new Error('targets: '+(jTargets.message||'error'));
+    if(jMap.status!=='ok')throw new Error('tlRmMap: '+(jMap.message||'error'));
+    const data={targets:jTargets.data.targets,tlRmMap:jMap.data.tlRmMap};
     const tlLookup={};
     if(data.tlRmMap){
       data.tlRmMap.forEach(r=>{if(r.RM)tlLookup[r.RM]={tl:r.TL,city:r.City};});
