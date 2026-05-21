@@ -234,16 +234,35 @@ async function syncFromGoogleSheet(){
   const el=document.getElementById('sheetSyncStatus');
   if(el){el.textContent='Syncing…';el.style.color='#64748B';}
   try{
-    const [r1,r2,r3]=await Promise.all([
-      fetch(SHEET_SCRIPT_URL+'?tab=RM+Targets').then(r=>r.json()),
-      fetch(SHEET_SCRIPT_URL+'?tab=RM+TL+Mapping').then(r=>r.json()),
-      fetch(SHEET_SCRIPT_URL).then(r=>r.json()),
-    ]);
-    console.log('?tab=RM+Targets:',JSON.stringify(r1).substring(0,500));
-    console.log('?tab=RM+TL+Mapping:',JSON.stringify(r2).substring(0,500));
-    console.log('no params:',JSON.stringify(r3).substring(0,500));
-    if(el){el.textContent='DEBUG — see Console (F12) for all 3 responses';el.style.color='#D97706';}
-    return;
+    const resp=await fetch(SHEET_SCRIPT_URL+'?tab=all');
+    if(!resp.ok)throw new Error('HTTP '+resp.status);
+    const json=await resp.json();
+    if(json.status!=='ok')throw new Error(json.message||'Script error');
+    const data=json.data;
+    const tlLookup={};
+    if(data.tlRmMap){
+      data.tlRmMap.forEach(r=>{if(r.RM)tlLookup[r.RM]={tl:r.TL,city:r.City};});
+    }
+    const s=loadStore();
+    const now=new Date().toISOString();
+    if(data.targets){
+      data.targets.forEach(r=>{
+        const rm=r.RM;
+        const tl=r['TL/ATL']||tlLookup[rm]?.tl||'';
+        const city=r.City||tlLookup[rm]?.city||'';
+        if(!rm||!tl)return;
+        const key=safeKey(`${tl}|${rm}`);
+        s[key]={...s[key],tl,rm,city,
+          target:parseFloat(r['Target (INR)'])||0,
+          netAchieved:parseFloat(r['Net Achieved (INR)'])||0,
+          monthlyLeads:parseFloat(r['Monthly Leads Target'])||0,
+          updatedAt:now};
+      });
+    }
+    saveStore(s);
+    const n=data.targets?.length||0;
+    if(el){el.textContent='✅ Synced '+n+' RMs';el.style.color='#16A34A';}
+    setTimeout(()=>{if(el)el.textContent='';},4000);
   }catch(e){
     if(el){el.textContent='❌ '+e.message;el.style.color='#DC2626';}
   }
