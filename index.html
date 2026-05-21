@@ -51,7 +51,7 @@ const db=firebase.firestore();
 const ROLE_MAP={'omkar@even.in':{role:'admin',name:'Admin (Omkar)',city:'Pune'}};
 
 // ── DATA LAYER ─────────────────────────────────────────────────────────────
-let _cache={targets:{},tl_targets:{},admin_state:null,tl_notes:{},route_settings:{},live_leads:{},clinic_statuses:{},route_assignments:{},tl_achieved:{},sync_settings:{},loaded:false};
+let _cache={targets:{},tl_targets:{},admin_state:null,tl_notes:{},route_settings:{},live_leads:{},clinic_statuses:{},route_assignments:{},tl_achieved:{},sync_settings:{},payment_rows:[],loaded:false};
 let _autoSyncTimer=null;
 const safeKey=k=>k.replace(/[^a-zA-Z0-9_-]/g,'_');
 const clinicKey=(rm,clinic)=>safeKey(`${rm}__${clinic}`);
@@ -216,6 +216,7 @@ async function initFirestore(){
       if(d.id==='route_assignments')_cache.route_assignments=d.data()||{};
       if(d.id==='tl_achieved')_cache.tl_achieved=d.data()||{};
       if(d.id==='sync_settings')_cache.sync_settings=d.data()||{};
+      if(d.id==='payment_rows')_cache.payment_rows=d.data()?.rows||[];
     });
   }catch(e){console.warn('Firestore:',e);}
   await loadClinicNotes();
@@ -271,6 +272,40 @@ function _editDist(a,b){
 // Build two maps from payment rows + target RM list:
 //   rmPayments[targetNameLower] = total amount (all name variants summed)
 //   rmDisplayName[targetNameLower] = fullest payment-tab name found
+function parsePayDate(s){
+  if(!s)return null;s=String(s).trim();
+  const m1=s.match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{4})$/);
+  if(m1)return new Date(+m1[3],+m1[2]-1,+m1[1]);
+  const m2=s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if(m2)return new Date(+m2[1],+m2[2]-1,+m2[3]);
+  const d=new Date(s);return isNaN(d.getTime())?null:d;
+}
+function getDateRangeFromLabel(label){
+  const t=new Date();const y=t.getFullYear(),m=t.getMonth();
+  if(label==='This Month')return{from:new Date(y,m,1),to:new Date(y,m+1,0)};
+  if(label==='Last Month')return{from:new Date(y,m-1,1),to:new Date(y,m,0)};
+  if(label==='This Week'){const dow=(t.getDay()+6)%7;return{from:new Date(y,m,t.getDate()-dow),to:t};}
+  if(label==='Last 3 Months')return{from:new Date(y,m-3,1),to:t};
+  return null;
+}
+function computeFilteredPayments(from,to){
+  const rows=_cache.payment_rows||[];
+  const toEnd=to?new Date(to.getFullYear(),to.getMonth(),to.getDate(),23,59,59,999):null;
+  const filtered=rows.filter(r=>{
+    const d=parsePayDate(r.date);if(!d)return false;
+    if(from&&d<from)return false;
+    if(toEnd&&d>toEnd)return false;
+    return true;
+  });
+  const payByRM={},payByTL={};
+  filtered.forEach(r=>{
+    if(r.rm)payByRM[r.rm]=(payByRM[r.rm]||0)+r.amount;
+    if(r.tl)payByTL[r.tl]=(payByTL[r.tl]||0)+r.amount;
+  });
+  const{rmPayments}=buildRMPayments(payByRM,ALL_RMS.map(r=>r.rm));
+  const total=Object.values(payByTL).reduce((s,v)=>s+v,0);
+  return{rmPayments,tlPayments:payByTL,total,rows:filtered};
+}
 function buildRMPayments(payByRM, targetRMNames){
   const rmPayments={}, rmDisplayName={};
   // Pass 1 — exact match (highest confidence, claim these first)
@@ -329,6 +364,23 @@ async function syncFromGoogleSheet({silent=false}={}){
     // Attribute payments to target RMs (handles all name variants / typos)
     const targetRMNames=rows.map(r=>(r.RM||'').trim()).filter(Boolean);
     const{rmPayments,rmDisplayName}=buildRMPayments(payByRM,targetRMNames);
+
+    // Build raw-name → matched-target map so we can tag each payment row
+    const rawToTarget={};
+    for(const k of Object.keys(payByRM)){
+      const t=targetRMNames.find(n=>n.toLowerCase()===k);
+      if(t){rawToTarget[k]=t.toLowerCase();continue;}
+      const kfw=k.split(/\s+/)[0];let bestD=Infinity,bestT=null;
+      for(const t2 of targetRMNames){const d=_editDist(kfw,t2.toLowerCase().split(/\s+/)[0]);if(d<=1&&d<bestD){bestD=d;bestT=t2;}}
+      if(bestT)rawToTarget[k]=bestT.toLowerCase();
+    }
+    const rawPayRows=paymentRows.map(p=>({
+      date:(p['Date']||p['Payment Date']||p['date']||p['DATE']||p['payment_date']||'').trim(),
+      rm:rawToTarget[(p['Rm Name']||'').trim().toLowerCase()]||(p['Rm Name']||'').trim().toLowerCase(),
+      tl:(p['ATL/TL Name']||'').trim().toLowerCase(),
+      amount:parseFloat(p.Amount)||0
+    })).filter(r=>r.amount>0);
+    _cache.payment_rows=rawPayRows;
 
     // Preserve existing clinic data keyed by lowercase RM name
     const savedClinics={};
@@ -410,6 +462,7 @@ async function syncFromGoogleSheet({silent=false}={}){
       saveStore(s),
       db.collection('config').doc('tl_achieved').set(tlAchMap).catch(e=>console.warn('tl_achieved write:',e)),
       db.collection('config').doc('sync_settings').set(_cache.sync_settings).catch(()=>{}),
+      db.collection('config').doc('payment_rows').set({rows:rawPayRows}).catch(()=>{}),
     ]);
     if(silent){
       applyStoreToRMs();
@@ -838,6 +891,9 @@ function ForcePasswordChange({user,onDone}){
 function RMView({user,onLogout}){
   const[tab,setTab]=useState('clinics');
   const[notes,setNotes]=useState({..._clinicNotes});
+  const[payDateRange,setPayDateRange]=useState('All Time');
+  const[payCustomFrom,setPayCustomFrom]=useState('');
+  const[payCustomTo,setPayCustomTo]=useState('');
   const rm=ALL_RMS.find(r=>r.rm===user.name)||ALL_RMS[0];
   const p=pct(rm.achieved,rm.target);
   const lp=pct(rm.monthlyAchv,rm.monthlyTgt);
@@ -866,7 +922,7 @@ function RMView({user,onLogout}){
 
       {/* Tab nav */}
       <div style={{background:B.white,display:'flex',borderBottom:`1px solid ${B.line}`,padding:'0 16px'}}>
-        {[['clinics','🏥 Clinics'],['targets','🎯 My Targets']].map(([id,lbl])=>(
+        {[['clinics','🏥 Clinics'],['targets','🎯 My Targets'],['payments','💳 Payments']].map(([id,lbl])=>(
           <button key={id} onClick={()=>setTab(id)} style={{flex:1,padding:'12px 8px',background:'none',border:'none',borderBottom:tab===id?`3px solid ${B.brand}`:'3px solid transparent',color:tab===id?B.brand:B.muted,fontWeight:tab===id?700:500,fontSize:13,cursor:'pointer'}}>
             {lbl}
           </button>
@@ -910,6 +966,70 @@ function RMView({user,onLogout}){
             </Card>
           ))}
         </>}
+
+        {tab==='payments'&&(()=>{
+          const rmLo=rm.rm.toLowerCase();
+          const allMyRows=(_cache.payment_rows||[]).filter(r=>r.rm===rmLo);
+          let myRows=allMyRows;
+          if(payDateRange!=='All Time'){
+            const range=payDateRange==='Custom'
+              ?(payCustomFrom&&payCustomTo?{from:new Date(payCustomFrom),to:new Date(payCustomTo)}:null)
+              :getDateRangeFromLabel(payDateRange);
+            if(range){
+              const toEnd=new Date(range.to.getFullYear(),range.to.getMonth(),range.to.getDate(),23,59,59,999);
+              myRows=allMyRows.filter(r=>{const d=parsePayDate(r.date);return d&&d>=range.from&&d<=toEnd;});
+            }
+          }
+          myRows=[...myRows].sort((a,b)=>{const da=parsePayDate(a.date),db=parsePayDate(b.date);return(db||0)-(da||0);});
+          const total=myRows.reduce((s,r)=>s+r.amount,0);
+          return(
+            <>
+              <div style={{marginBottom:10}}>
+                <div style={{display:'flex',gap:6,flexWrap:'wrap',marginBottom:8}}>
+                  {['All Time','This Week','This Month','Last Month','Last 3 Months','Custom'].map(o=>(
+                    <button key={o} onClick={()=>setPayDateRange(o)} style={{padding:'5px 11px',borderRadius:16,border:`1.5px solid ${payDateRange===o?B.brand:B.line}`,background:payDateRange===o?B.brand:B.white,color:payDateRange===o?'#fff':B.muted,fontSize:11,fontWeight:600,cursor:'pointer'}}>
+                      {o}
+                    </button>
+                  ))}
+                </div>
+                {payDateRange==='Custom'&&<div style={{display:'flex',gap:6,alignItems:'center',marginBottom:8}}>
+                  <input type="date" value={payCustomFrom} onChange={e=>setPayCustomFrom(e.target.value)} style={{padding:'6px 9px',border:`1.5px solid ${B.line}`,borderRadius:8,fontSize:12,outline:'none',flex:1}}/>
+                  <span style={{color:B.muted,fontSize:12}}>to</span>
+                  <input type="date" value={payCustomTo} onChange={e=>setPayCustomTo(e.target.value)} style={{padding:'6px 9px',border:`1.5px solid ${B.line}`,borderRadius:8,fontSize:12,outline:'none',flex:1}}/>
+                </div>}
+              </div>
+              <div style={{background:B.brandLight,borderRadius:12,padding:'12px 14px',marginBottom:14,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                <div style={{fontSize:12,color:B.brand,fontWeight:600}}>{payDateRange==='All Time'?'All payments':'Payments · '+payDateRange}</div>
+                <div style={{fontSize:18,fontWeight:800,color:B.brand}}>{fmtN(total)}</div>
+              </div>
+              {myRows.length===0?(
+                <div style={{textAlign:'center',padding:'32px 0',color:B.muted,fontSize:13}}>
+                  {allMyRows.length===0?'No payment data yet. Sync from sheet to load payments.':'No payments in this date range.'}
+                </div>
+              ):(
+                <div style={{background:B.white,borderRadius:12,overflow:'hidden',border:`1px solid ${B.line}`}}>
+                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',padding:'8px 14px',background:'#F8FAFC',fontSize:11,fontWeight:700,color:B.muted,textTransform:'uppercase',letterSpacing:'.4px',borderBottom:`1px solid ${B.line}`}}>
+                    <div>Date</div><div style={{textAlign:'right'}}>Amount</div>
+                  </div>
+                  {myRows.map((r,i)=>{
+                    const d=parsePayDate(r.date);
+                    const dateStr=d?d.toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'}):r.date||'—';
+                    return(
+                      <div key={i} style={{display:'grid',gridTemplateColumns:'1fr 1fr',padding:'10px 14px',borderBottom:i<myRows.length-1?`1px solid ${B.line}`:'none',background:i%2===0?B.white:'#FAFBFF'}}>
+                        <div style={{fontSize:13,color:B.ink,fontWeight:500}}>{dateStr}</div>
+                        <div style={{textAlign:'right',fontSize:14,fontWeight:700,color:B.brand}}>₹{Number(r.amount).toLocaleString('en-IN')}</div>
+                      </div>
+                    );
+                  })}
+                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',padding:'10px 14px',background:B.navy}}>
+                    <div style={{fontSize:12,fontWeight:700,color:'rgba(255,255,255,.8)'}}>Total · {myRows.length} payment{myRows.length!==1?'s':''}</div>
+                    <div style={{textAlign:'right',fontSize:14,fontWeight:800,color:'#fff'}}>₹{Number(total).toLocaleString('en-IN')}</div>
+                  </div>
+                </div>
+              )}
+            </>
+          );
+        })()}
 
         {tab==='targets'&&<>
           <STitle>My Performance — May 2026</STitle>
@@ -957,11 +1077,18 @@ function RMView({user,onLogout}){
 // ── TL VIEW ────────────────────────────────────────────────────────────────
 function TLView({user,onLogout}){
   const[screen,setScreen]=useState('team');
-  const[dateRange,setDateRange]=useState('This Month');
+  const[dateRange,setDateRange]=useState('All Time');
+  const[customFrom,setCustomFrom]=useState('');
+  const[customTo,setCustomTo]=useState('');
   const isMobile=useIsMobile();
   const myRMs=ALL_RMS.filter(r=>r.tl===user.name);
   const tgt=myRMs.reduce((s,r)=>s+r.target,0);
-  const ach=myRMs.reduce((s,r)=>s+r.achieved,0);
+  const filtData=React.useMemo(()=>{
+    if(dateRange==='All Time')return null;
+    if(dateRange==='Custom'){if(!customFrom||!customTo)return null;return computeFilteredPayments(new Date(customFrom),new Date(customTo));}
+    const r=getDateRangeFromLabel(dateRange);return r?computeFilteredPayments(r.from,r.to):null;
+  },[dateRange,customFrom,customTo]);
+  const ach=filtData?myRMs.reduce((s,r)=>s+(filtData.rmPayments[r.rm.toLowerCase()]||0),0):myRMs.reduce((s,r)=>s+r.achieved,0);
 
   const TeamView=()=>{
     const behind=myRMs.filter(r=>pct(r.achieved,r.target)<60);
@@ -1013,10 +1140,20 @@ function TLView({user,onLogout}){
               <div style={{fontSize:22,fontWeight:800,color:B.navy}}>{user.name}'s Team</div>
               <div style={{color:B.muted,fontSize:13,marginTop:3}}>{user.city||'Pune'} · {myRMs.length} RMs · {new Date().toLocaleDateString('en-IN',{day:'numeric',month:'long',year:'numeric'})}</div>
             </div>
-            <select value={dateRange} onChange={e=>setDateRange(e.target.value)} style={{padding:'8px 14px',border:`1.5px solid ${B.line}`,borderRadius:10,fontSize:13,background:B.white,outline:'none',cursor:'pointer',fontWeight:600,color:B.ink}}>
-              {['This Week','This Month','Last Month','Last 3 Months'].map(o=><option key={o}>{o}</option>)}
+          <div style={{display:'flex',flexDirection:'column',gap:6,alignItems:'flex-end'}}>
+            <select value={dateRange} onChange={e=>setDateRange(e.target.value)} style={{padding:'8px 14px',border:`1.5px solid ${filtData?B.brand:B.line}`,borderRadius:10,fontSize:13,background:B.white,outline:'none',cursor:'pointer',fontWeight:600,color:filtData?B.brand:B.ink}}>
+              {['All Time','This Week','This Month','Last Month','Last 3 Months','Custom'].map(o=><option key={o}>{o}</option>)}
             </select>
+            {dateRange==='Custom'&&<div style={{display:'flex',gap:6,alignItems:'center'}}>
+              <input type="date" value={customFrom} onChange={e=>setCustomFrom(e.target.value)} style={{padding:'6px 9px',border:`1.5px solid ${B.line}`,borderRadius:8,fontSize:12,outline:'none'}}/>
+              <span style={{color:B.muted,fontSize:12}}>to</span>
+              <input type="date" value={customTo} onChange={e=>setCustomTo(e.target.value)} style={{padding:'6px 9px',border:`1.5px solid ${B.line}`,borderRadius:8,fontSize:12,outline:'none'}}/>
+            </div>}
           </div>
+          </div>
+          {filtData&&<div style={{background:B.brandLight,border:`1px solid ${B.brand}`,borderRadius:10,padding:'8px 14px',marginBottom:16,fontSize:12,color:B.brand,fontWeight:600}}>
+            Showing payments for: <strong>{dateRange==='Custom'?`${customFrom} to ${customTo}`:dateRange}</strong> — Total: <strong>{fmt(filtData.total)}</strong> across {filtData.rows.length} payments
+          </div>}
           {behind.length>0&&<div style={{background:B.redBg,borderLeft:`4px solid ${B.red}`,borderRadius:14,padding:'12px 14px',marginBottom:20}}>
             <div style={{color:B.red,fontWeight:700}}>⚠️ Behind target: {behind.map(r=>r.rm).join(', ')}</div>
           </div>}
@@ -1050,7 +1187,8 @@ function TLView({user,onLogout}){
                 </thead>
                 <tbody>
                   {myRMs.sort((a,b)=>pct(b.achieved,b.target)-pct(a.achieved,a.target)).map((r,i)=>{
-                    const p=pct(r.achieved,r.target);
+                    const rma=filtData?filtData.rmPayments[r.rm.toLowerCase()]||0:r.achieved;
+                    const p=pct(rma,r.target);
                     const stc=p>=80?B.green:p>=60?B.amber:B.red;
                     const stb=p>=80?B.greenBg:p>=60?B.amberBg:B.redBg;
                     const stl=p>=80?'On Track':p>=60?'At Risk':'Behind';
@@ -1064,7 +1202,7 @@ function TLView({user,onLogout}){
                       </td>
                       <td style={td2}>{r.city}</td>
                       <td style={tdR2}>{Number(r.target).toLocaleString('en-IN')}</td>
-                      <td style={tdR2}>{Number(r.achieved).toLocaleString('en-IN')}</td>
+                      <td style={tdR2}>{Number(rma).toLocaleString('en-IN')}</td>
                       <td style={tdR2}><span style={{color:pClr(p),fontWeight:700}}>{p}%</span></td>
                       <td style={tdR2}>{r.monthlyTgt}</td>
                       <td style={tdR2}>{r.monthlyAchv}</td>
@@ -1510,13 +1648,20 @@ function RoutePlanPanel({user}){
 function AllTeamsPanel(){
   const[expanded,setExpanded]=useState(null);
   const[cityF,setCityF]=useState('All');
-  const[dateRange,setDateRange]=useState('This Month');
+  const[dateRange,setDateRange]=useState('All Time');
+  const[customFrom,setCustomFrom]=useState('');
+  const[customTo,setCustomTo]=useState('');
   const[,_forceUpdate]=useState(0);
   useEffect(()=>{const h=()=>_forceUpdate(v=>v+1);window.addEventListener('rmDataUpdated',h);return()=>window.removeEventListener('rmDataUpdated',h);},[]);
   const isMobile=useIsMobile();
+  const filtData=React.useMemo(()=>{
+    if(dateRange==='All Time')return null;
+    if(dateRange==='Custom'){if(!customFrom||!customTo)return null;return computeFilteredPayments(new Date(customFrom),new Date(customTo));}
+    const r=getDateRangeFromLabel(dateRange);return r?computeFilteredPayments(r.from,r.to):null;
+  },[dateRange,customFrom,customTo]);
   const tls=ZONE.tls.filter(t=>cityF==='All'||t.city===cityF);
   const totTarget=tls.reduce((s,t)=>s+t.target,0);
-  const totAchv=tls.reduce((s,t)=>s+t.achieved,0);
+  const totAchv=filtData?tls.reduce((s,t)=>s+(filtData.tlPayments[t.name.toLowerCase()]||0),0):tls.reduce((s,t)=>s+t.achieved,0);
   const totRMs=tls.reduce((s,t)=>s+t.rms,0);
   const totMthlyTgt=tls.reduce((s,t)=>s+t.monthlyTgt,0);
   const totMthlyAchv=tls.reduce((s,t)=>s+t.monthlyAchv,0);
@@ -1596,14 +1741,22 @@ function AllTeamsPanel(){
               <button key={c} onClick={()=>setCityF(c)} style={{padding:'7px 14px',borderRadius:20,border:`1.5px solid ${cityF===c?B.brand:B.line}`,background:cityF===c?B.brand:B.white,color:cityF===c?'#fff':B.muted,fontSize:12,fontWeight:600,cursor:'pointer',whiteSpace:'nowrap'}}>{c}</button>
             ))}
           </div>
-          <select value={dateRange} onChange={e=>setDateRange(e.target.value)} style={{padding:'8px 14px',border:`1.5px solid ${B.line}`,borderRadius:10,fontSize:13,background:B.white,outline:'none',cursor:'pointer',fontWeight:600,color:B.ink}}>
-            {['This Week','This Month','Last Month','Last 3 Months'].map(o=><option key={o}>{o}</option>)}
+          <select value={dateRange} onChange={e=>setDateRange(e.target.value)} style={{padding:'8px 14px',border:`1.5px solid ${filtData?B.brand:B.line}`,borderRadius:10,fontSize:13,background:B.white,outline:'none',cursor:'pointer',fontWeight:600,color:filtData?B.brand:B.ink}}>
+            {['All Time','This Week','This Month','Last Month','Last 3 Months','Custom'].map(o=><option key={o}>{o}</option>)}
           </select>
+          {dateRange==='Custom'&&<div style={{display:'flex',gap:6,alignItems:'center'}}>
+            <input type="date" value={customFrom} onChange={e=>setCustomFrom(e.target.value)} style={{padding:'7px 10px',border:`1.5px solid ${B.line}`,borderRadius:8,fontSize:12,outline:'none'}}/>
+            <span style={{color:B.muted,fontSize:12}}>to</span>
+            <input type="date" value={customTo} onChange={e=>setCustomTo(e.target.value)} style={{padding:'7px 10px',border:`1.5px solid ${B.line}`,borderRadius:8,fontSize:12,outline:'none'}}/>
+          </div>}
         </div>
       </div>
+      {filtData&&<div style={{background:B.brandLight,border:`1px solid ${B.brand}`,borderRadius:10,padding:'8px 14px',marginBottom:16,fontSize:12,color:B.brand,fontWeight:600}}>
+        Showing payments for: <strong>{dateRange==='Custom'?`${customFrom} to ${customTo}`:dateRange}</strong> — Total: <strong>{fmt(filtData.total)}</strong> across {filtData.rows.length} payments
+      </div>}
       <div style={{display:'flex',gap:16,marginBottom:24}}>
         <StatCard title="Zone Target" value={fmt(totTarget)} icon="🎯"/>
-        <StatCard title="Zone Achieved" value={fmt(totAchv)} sub={`${zp}% of target`} icon="💰" highlight/>
+        <StatCard title={filtData?`Achieved (${dateRange})`:'Zone Achieved'} value={fmt(totAchv)} sub={`${zp}% of target`} icon="💰" highlight/>
         <StatCard title="Total TLs" value={String(tls.length)} icon="👥"/>
         <StatCard title="Active RMs" value={String(totRMs)} icon="👤"/>
       </div>
@@ -1633,7 +1786,8 @@ function AllTeamsPanel(){
             </thead>
             <tbody>
               {[...tls].sort((a,b)=>pct(b.achieved,b.target)-pct(a.achieved,a.target)).flatMap((t,i)=>{
-                const p=pct(t.achieved,t.target);
+                const tla=filtData?filtData.tlPayments[t.name.toLowerCase()]||0:t.achieved;
+                const p=pct(tla,t.target);
                 const stc=p>=80?B.green:p>=60?B.amber:B.red;
                 const stb=p>=80?B.greenBg:p>=60?B.amberBg:B.redBg;
                 const stl=p>=80?'On Track':p>=60?'At Risk':'Behind';
@@ -1652,7 +1806,7 @@ function AllTeamsPanel(){
                     <td style={td}>{t.city}</td>
                     <td style={tdR}>{t.rms}</td>
                     <td style={tdR}>{Number(t.target).toLocaleString('en-IN')}</td>
-                    <td style={tdR}>{Number(t.achieved).toLocaleString('en-IN')}</td>
+                    <td style={tdR}>{Number(tla).toLocaleString('en-IN')}</td>
                     <td style={tdR}><span style={{color:pClr(p),fontWeight:700}}>{p}%</span></td>
                     <td style={tdR}>{t.monthlyTgt}</td>
                     <td style={tdR}>{t.monthlyAchv}</td>
@@ -1662,7 +1816,8 @@ function AllTeamsPanel(){
                     <td style={td}><span style={{background:stb,color:stc,padding:'4px 12px',borderRadius:20,fontSize:11,fontWeight:700}}>{stl}</span></td>
                   </tr>,
                   ...(isOpen?tlRMs.sort((a,b)=>pct(b.achieved,b.target)-pct(a.achieved,a.target)).map((r,j)=>{
-                    const rp=pct(r.achieved,r.target);
+                    const rma=filtData?filtData.rmPayments[r.rm.toLowerCase()]||0:r.achieved;
+                    const rp=pct(rma,r.target);
                     const rc=rp>=80?B.green:rp>=60?B.amber:B.red;
                     const rb=rp>=80?B.greenBg:rp>=60?B.amberBg:B.redBg;
                     const rl=rp>=80?'On Track':rp>=60?'At Risk':'Behind';
@@ -1677,7 +1832,7 @@ function AllTeamsPanel(){
                       <td style={td}>{r.city}</td>
                       <td style={tdR}>{r.clinics?.length||0}</td>
                       <td style={tdR}>{Number(r.target).toLocaleString('en-IN')}</td>
-                      <td style={tdR}>{Number(r.achieved).toLocaleString('en-IN')}</td>
+                      <td style={tdR}>{Number(rma).toLocaleString('en-IN')}</td>
                       <td style={tdR}><span style={{color:pClr(rp),fontWeight:700}}>{rp}%</span></td>
                       <td style={tdR}>{r.monthlyTgt}</td>
                       <td style={tdR}>{r.monthlyAchv}</td>
