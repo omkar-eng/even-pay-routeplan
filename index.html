@@ -914,6 +914,7 @@ function RMView({user,onLogout}){
   const[payDateRange,setPayDateRange]=useState('All Time');
   const[payCustomFrom,setPayCustomFrom]=useState('');
   const[payCustomTo,setPayCustomTo]=useState('');
+  const[paySingleDate,setPaySingleDate]=useState('');
   const rm=ALL_RMS.find(r=>r.rm===user.name)||ALL_RMS[0];
   const p=pct(rm.achieved,rm.target);
   const lp=pct(rm.monthlyAchv,rm.monthlyTgt);
@@ -992,26 +993,35 @@ function RMView({user,onLogout}){
           const allMyRows=(_cache.payment_rows||[]).filter(r=>r.rm===rmLo);
           let myRows=allMyRows;
           if(payDateRange!=='All Time'){
-            const range=payDateRange==='Custom'
-              ?(payCustomFrom&&payCustomTo?{from:new Date(payCustomFrom),to:new Date(payCustomTo)}:null)
-              :getDateRangeFromLabel(payDateRange);
-            if(range){
-              const toEnd=new Date(range.to.getFullYear(),range.to.getMonth(),range.to.getDate(),23,59,59,999);
-              myRows=allMyRows.filter(r=>{const d=parsePayDate(r.date);return d&&d>=range.from&&d<=toEnd;});
+            if(payDateRange==='Single Date'){
+              if(paySingleDate){const sd=new Date(paySingleDate);const se=new Date(sd.getFullYear(),sd.getMonth(),sd.getDate(),23,59,59,999);myRows=allMyRows.filter(r=>{const d=parsePayDate(r.date);return d&&d>=sd&&d<=se;});}
+            } else {
+              const range=payDateRange==='Custom'
+                ?(payCustomFrom&&payCustomTo?{from:new Date(payCustomFrom),to:new Date(payCustomTo)}:null)
+                :getDateRangeFromLabel(payDateRange);
+              if(range){
+                const toEnd=new Date(range.to.getFullYear(),range.to.getMonth(),range.to.getDate(),23,59,59,999);
+                myRows=allMyRows.filter(r=>{const d=parsePayDate(r.date);return d&&d>=range.from&&d<=toEnd;});
+              }
             }
           }
           myRows=[...myRows].sort((a,b)=>{const da=parsePayDate(a.date),db=parsePayDate(b.date);return(db||0)-(da||0);});
           const total=myRows.reduce((s,r)=>s+r.amount,0);
+          const payLabel=payDateRange==='Single Date'&&paySingleDate?new Date(paySingleDate).toLocaleDateString('en-IN',{day:'numeric',month:'long',year:'numeric'}):payDateRange;
           return(
             <>
               <div style={{marginBottom:10}}>
                 <div style={{display:'flex',gap:6,flexWrap:'wrap',marginBottom:8}}>
-                  {['All Time','This Week','This Month','Last Month','Last 3 Months','Custom'].map(o=>(
+                  {['All Time','Single Date','This Week','This Month','Last Month','Last 3 Months','Custom'].map(o=>(
                     <button key={o} onClick={()=>setPayDateRange(o)} style={{padding:'5px 11px',borderRadius:16,border:`1.5px solid ${payDateRange===o?B.brand:B.line}`,background:payDateRange===o?B.brand:B.white,color:payDateRange===o?'#fff':B.muted,fontSize:11,fontWeight:600,cursor:'pointer'}}>
                       {o}
                     </button>
                   ))}
                 </div>
+                {payDateRange==='Single Date'&&<div style={{display:'flex',gap:6,alignItems:'center',marginBottom:8}}>
+                  <span style={{color:B.muted,fontSize:12,fontWeight:600}}>Pick date:</span>
+                  <input type="date" value={paySingleDate} onChange={e=>setPaySingleDate(e.target.value)} style={{padding:'6px 9px',border:`1.5px solid ${B.brand}`,borderRadius:8,fontSize:12,outline:'none',flex:1}}/>
+                </div>}
                 {payDateRange==='Custom'&&<div style={{display:'flex',gap:6,alignItems:'center',marginBottom:8}}>
                   <input type="date" value={payCustomFrom} onChange={e=>setPayCustomFrom(e.target.value)} style={{padding:'6px 9px',border:`1.5px solid ${B.line}`,borderRadius:8,fontSize:12,outline:'none',flex:1}}/>
                   <span style={{color:B.muted,fontSize:12}}>to</span>
@@ -1019,7 +1029,7 @@ function RMView({user,onLogout}){
                 </div>}
               </div>
               <div style={{background:B.brandLight,borderRadius:12,padding:'12px 14px',marginBottom:14,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-                <div style={{fontSize:12,color:B.brand,fontWeight:600}}>{payDateRange==='All Time'?'All payments':'Payments · '+payDateRange}</div>
+                <div style={{fontSize:12,color:B.brand,fontWeight:600}}>{payDateRange==='All Time'?'All payments':'Payments · '+payLabel}</div>
                 <div style={{fontSize:18,fontWeight:800,color:B.brand}}>{fmtN(total)}</div>
               </div>
               {myRows.length===0?(
@@ -1100,11 +1110,13 @@ function TLView({user,onLogout}){
   const[dateRange,setDateRange]=useState('All Time');
   const[customFrom,setCustomFrom]=useState('');
   const[customTo,setCustomTo]=useState('');
+  const[singleDate,setSingleDate]=useState('');
   const isMobile=useIsMobile();
   const myRMs=ALL_RMS.filter(r=>r.tl===user.name);
   const tgt=myRMs.reduce((s,r)=>s+r.target,0);
   const filtData=(()=>{
     if(dateRange==='All Time')return null;
+    if(dateRange==='Single Date'){if(!singleDate)return null;const sd=new Date(singleDate);return computeFilteredPayments(sd,sd);}
     if(dateRange==='Custom'){if(!customFrom||!customTo)return null;return computeFilteredPayments(new Date(customFrom),new Date(customTo));}
     const r=getDateRangeFromLabel(dateRange);return r?computeFilteredPayments(r.from,r.to):null;
   })();
@@ -1162,8 +1174,12 @@ function TLView({user,onLogout}){
             </div>
           <div style={{display:'flex',flexDirection:'column',gap:6,alignItems:'flex-end'}}>
             <select value={dateRange} onChange={e=>setDateRange(e.target.value)} style={{padding:'8px 14px',border:`1.5px solid ${filtData?B.brand:B.line}`,borderRadius:10,fontSize:13,background:B.white,outline:'none',cursor:'pointer',fontWeight:600,color:filtData?B.brand:B.ink}}>
-              {['All Time','This Week','This Month','Last Month','Last 3 Months','Custom'].map(o=><option key={o}>{o}</option>)}
+              {['All Time','Single Date','This Week','This Month','Last Month','Last 3 Months','Custom'].map(o=><option key={o}>{o}</option>)}
             </select>
+            {dateRange==='Single Date'&&<div style={{display:'flex',gap:6,alignItems:'center'}}>
+              <span style={{color:B.muted,fontSize:12,fontWeight:600}}>Pick date:</span>
+              <input type="date" value={singleDate} onChange={e=>setSingleDate(e.target.value)} style={{padding:'6px 9px',border:`1.5px solid ${B.brand}`,borderRadius:8,fontSize:12,outline:'none'}}/>
+            </div>}
             {dateRange==='Custom'&&<div style={{display:'flex',gap:6,alignItems:'center'}}>
               <input type="date" value={customFrom} onChange={e=>setCustomFrom(e.target.value)} style={{padding:'6px 9px',border:`1.5px solid ${B.line}`,borderRadius:8,fontSize:12,outline:'none'}}/>
               <span style={{color:B.muted,fontSize:12}}>to</span>
@@ -1674,11 +1690,13 @@ function AllTeamsPanel(){
   const[dateRange,setDateRange]=useState('All Time');
   const[customFrom,setCustomFrom]=useState('');
   const[customTo,setCustomTo]=useState('');
+  const[singleDate,setSingleDate]=useState('');
   const[,_forceUpdate]=useState(0);
   useEffect(()=>{const h=()=>_forceUpdate(v=>v+1);window.addEventListener('rmDataUpdated',h);return()=>window.removeEventListener('rmDataUpdated',h);},[]);
   const isMobile=useIsMobile();
   const filtData=(()=>{
     if(dateRange==='All Time')return null;
+    if(dateRange==='Single Date'){if(!singleDate)return null;const sd=new Date(singleDate);return computeFilteredPayments(sd,sd);}
     if(dateRange==='Custom'){if(!customFrom||!customTo)return null;return computeFilteredPayments(new Date(customFrom),new Date(customTo));}
     const r=getDateRangeFromLabel(dateRange);return r?computeFilteredPayments(r.from,r.to):null;
   })();
@@ -1765,8 +1783,12 @@ function AllTeamsPanel(){
             ))}
           </div>
           <select value={dateRange} onChange={e=>setDateRange(e.target.value)} style={{padding:'8px 14px',border:`1.5px solid ${filtData?B.brand:B.line}`,borderRadius:10,fontSize:13,background:B.white,outline:'none',cursor:'pointer',fontWeight:600,color:filtData?B.brand:B.ink}}>
-            {['All Time','This Week','This Month','Last Month','Last 3 Months','Custom'].map(o=><option key={o}>{o}</option>)}
+            {['All Time','Single Date','This Week','This Month','Last Month','Last 3 Months','Custom'].map(o=><option key={o}>{o}</option>)}
           </select>
+          {dateRange==='Single Date'&&<div style={{display:'flex',gap:6,alignItems:'center'}}>
+            <span style={{color:B.muted,fontSize:12,fontWeight:600}}>Pick date:</span>
+            <input type="date" value={singleDate} onChange={e=>setSingleDate(e.target.value)} style={{padding:'7px 10px',border:`1.5px solid ${B.brand}`,borderRadius:8,fontSize:12,outline:'none'}}/>
+          </div>}
           {dateRange==='Custom'&&<div style={{display:'flex',gap:6,alignItems:'center'}}>
             <input type="date" value={customFrom} onChange={e=>setCustomFrom(e.target.value)} style={{padding:'7px 10px',border:`1.5px solid ${B.line}`,borderRadius:8,fontSize:12,outline:'none'}}/>
             <span style={{color:B.muted,fontSize:12}}>to</span>
