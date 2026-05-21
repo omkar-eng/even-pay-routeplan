@@ -229,15 +229,28 @@ function loadTLTargets(){return _cache.tl_targets||{};}
 function saveTLTargetsStore(s){_cache.tl_targets=s;db.collection('config').doc('tl_targets').set(s).catch(()=>{});return true;}
 
 // ── GOOGLE SHEETS INTEGRATION ──────────────────────────────────────────────
-const SHEET_SCRIPT_URL='https://script.google.com/macros/s/AKfycbzQ7OKJSOZ30DOWDe1GUk3fx4wBhEuDf4yGtFU7oIlg158OpLEPLyOrL_Qrz3JBeMJn/exec';
+const SHEET_SCRIPT_URL='https://script.google.com/macros/s/AKfycbwSaHdZY5TmRjWUhafHyruMFPq9IRszlVo6lL1T8ivRp5kgp2GlsKqBt7TClXzaIi5Z/exec';
 
 async function syncFromGoogleSheet(){
   const el=document.getElementById('sheetSyncStatus');
   if(el){el.textContent='Syncing…';el.style.color='#64748B';}
   try{
-    const jTargets=await fetch(SHEET_SCRIPT_URL+'?tab=targets').then(r=>r.json());
-    if(jTargets.status!=='ok')throw new Error(jTargets.message||'Script error');
+    const [jTargets,jPayments]=await Promise.all([
+      fetch(SHEET_SCRIPT_URL+'?tab=targets').then(r=>r.json()),
+      fetch(SHEET_SCRIPT_URL+'?tab=payments').then(r=>r.json()),
+    ]);
+    if(jTargets.status!=='ok')throw new Error('targets: '+(jTargets.message||'error'));
+    if(jPayments.status!=='ok')throw new Error('payments: '+(jPayments.message||'error'));
     const rows=jTargets.data.targets||[];
+    const paymentRows=jPayments.data.payments||[];
+
+    // Sum actual payments by RM name (case-insensitive); field is 'Rm Name'
+    const payByRM={};
+    paymentRows.forEach(p=>{
+      const rm=(p['Rm Name']||'').trim().toLowerCase();
+      if(!rm)return;
+      payByRM[rm]=(payByRM[rm]||0)+(parseFloat(p.Amount)||0);
+    });
 
     // Case-insensitive RM lookup
     const rmByName={};
@@ -262,7 +275,6 @@ async function syncFromGoogleSheet(){
       const sheetCity=(r.City||'').trim();
       if(!sheetRM||!sheetTL)return;
 
-      // Find or create RM entry
       let rmObj=rmByName[sheetRM.toLowerCase()];
       if(!rmObj){
         rmObj={rm:sheetRM,tl:sheetTL,city:sheetCity,target:0,achieved:0,refund:0,
@@ -270,13 +282,11 @@ async function syncFromGoogleSheet(){
         ALL_RMS.push(rmObj);rmByName[sheetRM.toLowerCase()]=rmObj;
       }
 
-      // Apply sheet values directly to ALL_RMS entry
       rmObj.tl=sheetTL;rmObj.city=sheetCity||rmObj.city;
       rmObj.target=parseFloat(r['Target (INR)'])||0;
-      rmObj.achieved=parseFloat(r['Net Achieved (INR)'])||0;
+      rmObj.achieved=payByRM[sheetRM.toLowerCase()]||0;
       rmObj.monthlyTgt=parseFloat(r['Monthly Leads Target'])||0;
 
-      // Persist to store using canonical name
       const key=safeKey(`${rmObj.tl}|${rmObj.rm}`);
       s[key]={...s[key],tl:rmObj.tl,rm:rmObj.rm,city:rmObj.city,
         target:rmObj.target,netAchieved:rmObj.achieved,monthlyLeads:rmObj.monthlyTgt,updatedAt:now};
@@ -303,8 +313,9 @@ async function syncFromGoogleSheet(){
 
     saveStore(s);
     window.dispatchEvent(new Event('rmDataUpdated'));
-    if(el){el.textContent='✅ Synced '+rows.length+' RMs';el.style.color='#16A34A';}
-    setTimeout(()=>{if(el)el.textContent='';},4000);
+    const total=Object.values(payByRM).reduce((s,v)=>s+v,0);
+    if(el){el.textContent='✅ Synced '+rows.length+' RMs · ₹'+total.toLocaleString('en-IN')+' collected';el.style.color='#16A34A';}
+    setTimeout(()=>{if(el)el.textContent='';},5000);
   }catch(e){
     if(el){el.textContent='❌ '+e.message;el.style.color='#DC2626';}
   }
