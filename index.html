@@ -361,95 +361,41 @@ const ZONE={
     {name:'Mumbai',target:3505000,achieved:466353,rms:28,filledRMs:21,leads:0,tls:4},
     {name:'Nagpur',target:1050000,achieved:42759,rms:6,filledRMs:5,leads:0,tls:1},
   ],
-  tls:[
-    {name:'Akshay',city:'Pune',rms:5,filledRMs:5,target:1750000,achieved:432000,leads:750,renewals:42,monthlyTgt:800,monthlyAchv:0,dailyTgt:30,dailyAchv:0,renewalTgt:40,renewalAchv:42},
-    {name:'Mayur',city:'Pune',rms:4,filledRMs:4,target:1030000,achieved:357171,leads:542,renewals:31,monthlyTgt:700,monthlyAchv:0,dailyTgt:25,dailyAchv:0,renewalTgt:30,renewalAchv:31},
-    {name:'Vikrant',city:'Pune',rms:6,filledRMs:5,target:1415000,achieved:88286,leads:550,renewals:22,monthlyTgt:600,monthlyAchv:0,dailyTgt:22,dailyAchv:0,renewalTgt:20,renewalAchv:22},
-    {name:'Md Raja',city:'Mumbai',rms:4,filledRMs:3,target:870000,achieved:113000,leads:420,renewals:28,monthlyTgt:500,monthlyAchv:0,dailyTgt:18,dailyAchv:0,renewalTgt:25,renewalAchv:28},
-    {name:'Naveen',city:'Mumbai',rms:5,filledRMs:5,target:1180000,achieved:197000,leads:510,renewals:35,monthlyTgt:550,monthlyAchv:0,dailyTgt:20,dailyAchv:0,renewalTgt:32,renewalAchv:35},
-    {name:'Seema',city:'Mumbai',rms:5,filledRMs:5,target:1105000,achieved:156353,leads:315,renewals:30,monthlyTgt:480,monthlyAchv:0,dailyTgt:18,dailyAchv:0,renewalTgt:28,renewalAchv:30},
-    {name:'Himanshu',city:'Mumbai',rms:1,filledRMs:1,target:350000,achieved:0,leads:100,renewals:5,monthlyTgt:100,monthlyAchv:0,dailyTgt:4,dailyAchv:0,renewalTgt:5,renewalAchv:5},
-    {name:'Nehant',city:'Nagpur',rms:6,filledRMs:5,target:1050000,achieved:42759,leads:634,renewals:25,monthlyTgt:400,monthlyAchv:0,dailyTgt:15,dailyAchv:0,renewalTgt:20,renewalAchv:25},
-  ],
+  tls:[],
 };
 
 const ALL_RMS=[
-  {rm:'Ayush Kamble',tl:'Akshay',city:'Pune',target:320000,achieved:108000,refund:0,monthlyTgt:200,monthlyAchv:186,dailyTgt:8,dailyAchv:0,renewalTgt:20,renewalAchv:17,leads:245,clinics:[
-    {name:'MEDISURE Health Clinic',locality:'Hinjewadi',leads:286,status:'Declining',freq:'Daily',slot:'11:00–12:00',reason:'Highest-lead clinic in territory; daily presence needed to stem decline.'},
-    {name:'Goodfaith Healthcare',locality:'Hinjewadi',leads:95,status:'Declining',freq:'Daily',slot:'12:00–1:15',reason:'Same Hinjewadi lane as MEDISURE — bundle into morning route.'},
-    {name:'TINY BLISS Child Care',locality:'Hinjewadi',leads:112,status:'Declining',freq:'Daily',slot:'3:00–4:30',reason:'Child health segment declining — afternoon retention window with high re-engagement potential.'},
-    {name:'AYODH Child Care',locality:'Wakad',leads:46,status:'Stable',freq:'Tri-weekly',slot:'4:30–5:30',reason:'Stable Wakad clinic; tri-weekly to maintain relationship without over-investing.'},
-  ]},
-  {rm:'Ajinkya Thorat',tl:'Akshay',city:'Pune',target:290000,achieved:72000,refund:0,monthlyTgt:180,monthlyAchv:130,dailyTgt:7,dailyAchv:0,renewalTgt:15,renewalAchv:9,leads:203,clinics:[
-    {name:'Dr. Prasad ENT Hospital',locality:'Spine Road',leads:203,status:'Declining',freq:'Daily',slot:'11:00–1:30',reason:'Largest clinic in territory (203 leads), declining hard — daily retention priority. Last lead 25-Apr by Ajinkya.'},
-    {name:'Marathe Children & Dental',locality:'Spine Road',leads:120,status:'Declining',freq:'Daily',slot:'11:00–1:30',reason:'Same Spine Road lane — club into daily route.'},
-    {name:'Elegance Skin Clinic',locality:'Ajmera',leads:71,status:'Declining',freq:'Tri-weekly',slot:'3:30–5:30',reason:'Declining; afternoon detour after Spine Road loop.'},
-  ]},
-  {rm:'Hemant Pantmallu',tl:'Akshay',city:'Pune',target:310000,achieved:91000,refund:0,monthlyTgt:160,monthlyAchv:155,dailyTgt:6,dailyAchv:0,renewalTgt:18,renewalAchv:16,leads:180,clinics:[
-    {name:'Saideep ENT Hospital',locality:'Sangavi',leads:146,status:'Declining',freq:'Daily',slot:'11:00–12:00',reason:'Key Sangavi clinic declining — daily visit to arrest the lead drop.'},
-    {name:'More Children Clinic',locality:'Sangavi',leads:92,status:'Declining',freq:'Daily',slot:'12:00–1:00',reason:'Same Sangavi block as Saideep — back-to-back morning slot for efficiency.'},
-    {name:'Ayansh Child Care',locality:'Rahatani',leads:58,status:'Declining',freq:'Daily',slot:'1:00–2:00',reason:'Bridge clinic in Rahatani; daily to maintain pipeline while declining.'},
-  ]},
-  {rm:'Ketan Pawar',tl:'Mayur',city:'Pune',target:290000,achieved:104655,refund:0,monthlyTgt:200,monthlyAchv:0,dailyTgt:10,dailyAchv:0,renewalTgt:22,renewalAchv:18,leads:210,clinics:[
-    {name:'Dr Dudhbhate Netralay',locality:'Sinhgad Rd',leads:126,status:'Declining',freq:'Daily',slot:'11:00–12:00',reason:'Highest-lead clinic on Sinhgad Rd — declining, daily visit critical to prevent further drop.'},
-    {name:'Dr Sushrut Kajale',locality:'Bharti Vidyapeeth',leads:94,status:'Growing',freq:'Daily',slot:'1:00–2:00',reason:'Growing clinic — daily to sustain momentum and deepen engagement.'},
-    {name:'Dr Somesh Kawade',locality:'Narhe',leads:177,status:'Stable',freq:'Tri-weekly',slot:'3:00–5:00',reason:'Stable high-volume clinic in Narhe; tri-weekly sufficient to maintain lead flow.'},
-  ]},
-  {rm:'Krishna Salunkhe',tl:'Mayur',city:'Pune',target:315000,achieved:32093,refund:0,monthlyTgt:200,monthlyAchv:0,dailyTgt:10,dailyAchv:0,renewalTgt:18,renewalAchv:8,leads:163,clinics:[
-    {name:'Navjeevan Children Clinic',locality:'Dhayri',leads:82,status:'Stable',freq:'Daily',slot:'11:00–12:30',reason:'Stable Dhayri clinic — daily visit to deepen referral relationship.'},
-    {name:'Prisha ENT Clinic',locality:'Indiranagar',leads:42,status:'Growing',freq:'Tri-weekly',slot:'3:30–5:00',reason:'Growing Indiranagar clinic with strong conversion potential — tri-weekly to nurture leads.'},
-  ]},
-  {rm:'Vishnu Maruti Waghmare',tl:'Mayur',city:'Pune',target:250000,achieved:74925,refund:0,monthlyTgt:200,monthlyAchv:0,dailyTgt:10,dailyAchv:0,renewalTgt:15,renewalAchv:5,leads:120,clinics:[
-    {name:'Dr Bharat Patel Clinic',locality:'Camp',leads:2,status:'Growing',freq:'Bi-weekly',slot:'5:00–6:30',reason:'Early-stage growing clinic in Camp — bi-weekly for relationship-building and lead development.'},
-  ]},
-  {rm:'Yalaling',tl:'Mayur',city:'Pune',target:175000,achieved:145498,refund:0,monthlyTgt:200,monthlyAchv:0,dailyTgt:10,dailyAchv:0,renewalTgt:12,renewalAchv:12,leads:95,clinics:[
-    {name:'Priority Children Clinic',locality:'Kothrud',leads:104,status:'Stable',freq:'Tri-weekly',slot:'11:30–1:30',reason:'Stable Kothrud clinic with consistent lead flow — tri-weekly maintenance to preserve relationship.'},
-  ]},
-  {rm:'Sumit Lal',tl:'Naveen',city:'Mumbai',target:285000,achieved:71000,refund:0,monthlyTgt:180,monthlyAchv:0,dailyTgt:8,dailyAchv:0,renewalTgt:18,renewalAchv:14,leads:155,clinics:[
-    {name:'Aastha Eye Clinic',locality:'Mira Road',leads:134,status:'Declining',freq:'Daily',slot:'11:00–12:30',reason:'High-lead declining clinic in Mira Road — daily visits critical to arrest the decline.'},
-    {name:"Vibgyor Children's",locality:'Mira Road',leads:9,status:'Growing',freq:'Tri-weekly',slot:'3:30–4:30',reason:'Growing niche clinic in Mira Road — tri-weekly to nurture early-stage leads.'},
-  ]},
-  {rm:'Rishabh Patel',tl:'Seema',city:'Mumbai',target:280000,achieved:75000,refund:0,monthlyTgt:160,monthlyAchv:0,dailyTgt:7,dailyAchv:0,renewalTgt:16,renewalAchv:12,leads:148,clinics:[
-    {name:'Mauli Clinic',locality:'Thane',leads:148,status:'Stable',freq:'Tri-weekly',slot:'11:30–1:30',reason:'Stable Thane clinic — tri-weekly to maintain engagement without over-visiting.'},
-  ]},
-  {rm:'Abhishek Salte',tl:'Seema',city:'Mumbai',target:290000,achieved:82000,refund:0,monthlyTgt:160,monthlyAchv:0,dailyTgt:7,dailyAchv:0,renewalTgt:16,renewalAchv:10,leads:108,clinics:[
-    {name:'Dr. Rajshekhar Sinhasan',locality:'Tilak Nagar',leads:46,status:'Growing',freq:'Tri-weekly',slot:'11:30–1:00',reason:'Growing Tilak Nagar clinic — tri-weekly to sustain trajectory and deepen referral pipeline.'},
-    {name:'Care 4 Diabetes Mulund',locality:'Mulund',leads:39,status:'Growing',freq:'Tri-weekly',slot:'3:30–5:00',reason:'Growing diabetes segment in Mulund — strong LTV potential given chronic care population.'},
-  ]},
-  {rm:'Jacky baswal',tl:'Himanshu',city:'Mumbai',target:350000,achieved:0,refund:0,monthlyTgt:100,monthlyAchv:0,dailyTgt:4,dailyAchv:0,renewalTgt:5,renewalAchv:5,leads:137,clinics:[
-    {name:'Dr Manoj Duleray Mehta',locality:'Parel',leads:39,status:'Stable',freq:'Tri-weekly',slot:'11:30–1:00',reason:'Stable Parel clinic — tri-weekly relationship maintenance to sustain current lead levels.'},
-    {name:'Sattva Pediatric',locality:'Parel',leads:28,status:'Growing',freq:'Tri-weekly',slot:'1:00–2:00',reason:'Growing Parel pediatric — tri-weekly to build on early traction and expand referral base.'},
-  ]},
-  {rm:'Santosh Pawar',tl:'Akshay',city:'Pune',target:280000,achieved:161000,refund:0,monthlyTgt:180,monthlyAchv:0,dailyTgt:7,dailyAchv:0,renewalTgt:15,renewalAchv:15,leads:131,clinics:[
-    {name:'Niragas Child Clinic',locality:'Bhosari',leads:73,status:'Growing',freq:'Tri-weekly',slot:'11:30–1:30',reason:'Growing Bhosari clinic — tri-weekly to sustain trajectory; evaluate upgrade if leads exceed 100.'},
-  ]},
 ];
 
 // ── APPLY STORE → GLOBALS ─────────────────────────────────────────────────
 function applyStoreToRMs(){
   const store=_cache.targets||{};
-  const rmByName={};
-  ALL_RMS.forEach(r=>{rmByName[r.rm.toLowerCase().trim()]=r;});
 
+  // Rebuild ALL_RMS from store — sheet names are source of truth
+  ALL_RMS.splice(0,ALL_RMS.length);
   Object.values(store).forEach(e=>{
     if(!e.rm||!e.tl)return;
-    let r=rmByName[e.rm.toLowerCase().trim()];
-    if(!r){
-      r={rm:e.rm,tl:e.tl,city:e.city||'',target:0,achieved:0,refund:0,
-        monthlyTgt:0,monthlyAchv:0,dailyTgt:0,dailyAchv:0,renewalTgt:0,renewalAchv:0,leads:0,clinics:[]};
-      ALL_RMS.push(r);rmByName[e.rm.toLowerCase().trim()]=r;
-    }
-    if(e.target!==undefined)         r.target       =e.target;
-    if(e.netAchieved!==undefined)    r.achieved     =e.netAchieved;
-    if(e.refund!==undefined)         r.refund       =e.refund;
-    if(e.monthlyLeads!==undefined)   r.monthlyTgt   =e.monthlyLeads;
-    if(e.monthlyAchieved!==undefined)r.monthlyAchv  =e.monthlyAchieved;
-    if(e.dailyLeads!==undefined)     r.dailyTgt     =e.dailyLeads;
-    if(e.dailyAchieved!==undefined)  r.dailyAchv    =e.dailyAchieved;
-    if(e.renewalTarget!==undefined)  r.renewalTgt   =e.renewalTarget;
-    if(e.renewalAchieved!==undefined)r.renewalAchv  =e.renewalAchieved;
+    ALL_RMS.push({
+      rm:e.rm,tl:e.tl,city:e.city||'',
+      target:e.target||0,achieved:e.netAchieved||0,refund:e.refund||0,
+      monthlyTgt:e.monthlyLeads||0,monthlyAchv:e.monthlyAchieved||0,
+      dailyTgt:e.dailyLeads||0,dailyAchv:e.dailyAchieved||0,
+      renewalTgt:e.renewalTarget||0,renewalAchv:e.renewalAchieved||0,
+      leads:0,clinics:[]
+    });
   });
 
+  // Rebuild ZONE.tls from ALL_RMS unique TL names
+  ZONE.tls.splice(0,ZONE.tls.length);
+  const tlByName={};
+  ALL_RMS.forEach(r=>{
+    if(!r.tl||tlByName[r.tl.toLowerCase()])return;
+    const nt={name:r.tl,city:r.city,rms:0,filledRMs:0,target:0,achieved:0,
+      leads:0,renewals:0,monthlyTgt:0,monthlyAchv:0,dailyTgt:0,dailyAchv:0,renewalTgt:0,renewalAchv:0};
+    ZONE.tls.push(nt);tlByName[r.tl.toLowerCase()]=nt;
+  });
+
+  // Compute TL aggregates
   ZONE.tls.forEach(tl=>{
     const n=tl.name.toLowerCase();
     const rms=ALL_RMS.filter(r=>r.tl.toLowerCase()===n);
