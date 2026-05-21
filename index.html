@@ -1905,6 +1905,7 @@ function UsersTab(){
   const[userSearch,setUserSearch]=useState('');
 
   const tls=ZONE.tls.map(t=>t.name);
+  const rmNames=ALL_RMS.map(r=>r.rm).sort();
   const ROLES=[{v:'rm',l:'RM — Relationship Manager'},{v:'tl',l:'TL — Team Leader'},{v:'zonal',l:'Zonal Head'},{v:'admin',l:'Admin'}];
 
   useEffect(()=>{
@@ -1948,6 +1949,14 @@ function UsersTab(){
     setStatus('✅ Role updated');setTimeout(()=>setStatus(''),3000);
   };
 
+  const resetPassword=async(email)=>{
+    try{
+      await auth.sendPasswordResetEmail(email);
+      setStatus('✅ Password reset email sent to '+email);
+    }catch(e){setStatus('❌ Could not send reset email');}
+    setTimeout(()=>setStatus(''),5000);
+  };
+
   const removeUser=async(uid,name)=>{
     if(!window.confirm(`Remove ${name}'s access? They won't be able to log in.`))return;
     await db.collection('users').doc(uid).delete();
@@ -1989,8 +1998,14 @@ function UsersTab(){
         <div style={{fontWeight:700,fontSize:14,color:B.brand,marginBottom:14}}>Add New Team Member</div>
         <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(180px,1fr))',gap:10,marginBottom:14}}>
           <div>
-            <div style={{fontSize:11,color:B.muted,marginBottom:4,fontWeight:600,textTransform:'uppercase'}}>Full Name *</div>
-            {inp(newUser.name,v=>setNewUser({...newUser,name:v}),'e.g. Rohan Sharma')}
+            <div style={{fontSize:11,color:B.muted,marginBottom:4,fontWeight:600,textTransform:'uppercase'}}>
+              {newUser.role==='rm'?'Select RM *':newUser.role==='tl'?'Select TL *':'Full Name *'}
+            </div>
+            {newUser.role==='rm'
+              ? selEl(newUser.name,v=>setNewUser({...newUser,name:v}),[{v:'',l:'Pick RM from list…'},...rmNames])
+              : newUser.role==='tl'
+                ? selEl(newUser.name,v=>setNewUser({...newUser,name:v}),[{v:'',l:'Pick TL from list…'},...tls])
+                : inp(newUser.name,v=>setNewUser({...newUser,name:v}),'e.g. Omkar')}
           </div>
           <div>
             <div style={{fontSize:11,color:B.muted,marginBottom:4,fontWeight:600,textTransform:'uppercase'}}>Work Email *</div>
@@ -2002,9 +2017,9 @@ function UsersTab(){
           </div>
           <div>
             <div style={{fontSize:11,color:B.muted,marginBottom:4,fontWeight:600,textTransform:'uppercase'}}>Role *</div>
-            {selEl(newUser.role,v=>setNewUser({...newUser,role:v}),ROLES)}
+            {selEl(newUser.role,v=>setNewUser({...newUser,role:v,name:''}),ROLES)}
           </div>
-          {(newUser.role==='rm'||newUser.role==='tl')&&<>
+          {newUser.role==='rm'&&<>
             <div>
               <div style={{fontSize:11,color:B.muted,marginBottom:4,fontWeight:600,textTransform:'uppercase'}}>Their TL</div>
               {selEl(newUser.tl,v=>setNewUser({...newUser,tl:v}),[{v:'',l:'Select TL…'},...tls])}
@@ -2016,7 +2031,8 @@ function UsersTab(){
           </>}
         </div>
         <div style={{background:B.amberBg,border:`1px solid ${B.amber}`,borderRadius:8,padding:'8px 12px',marginBottom:12,fontSize:12,color:B.amber}}>
-          ⚠️ Share the email and password with the team member. They can change their password after logging in.
+          Share these credentials with the team member: <strong>{newUser.email||'email'}</strong> / <strong>{newUser.password||'password'}</strong>
+          {' '}— Login at even-pay-routeplan.vercel.app
         </div>
         <div style={{display:'flex',gap:8}}>
           <button onClick={addUser} style={{padding:'9px 20px',background:B.brand,color:'#fff',border:'none',borderRadius:10,fontSize:13,fontWeight:700,cursor:'pointer'}}>✓ Create Account</button>
@@ -2055,10 +2071,16 @@ function UsersTab(){
                   </select>
                 </td>
                 <td>
-                  <button onClick={()=>removeUser(u.id,u.name)}
-                    style={{padding:'5px 10px',background:B.redBg,color:B.red,border:'none',borderRadius:8,fontSize:12,fontWeight:600,cursor:'pointer'}}>
-                    🗑️ Remove
-                  </button>
+                  <div style={{display:'flex',gap:6}}>
+                    <button onClick={()=>resetPassword(u.email)}
+                      style={{padding:'5px 10px',background:B.amberBg,color:B.amber,border:'none',borderRadius:8,fontSize:12,fontWeight:600,cursor:'pointer',whiteSpace:'nowrap'}}>
+                      Reset Pwd
+                    </button>
+                    <button onClick={()=>removeUser(u.id,u.name)}
+                      style={{padding:'5px 10px',background:B.redBg,color:B.red,border:'none',borderRadius:8,fontSize:12,fontWeight:600,cursor:'pointer'}}>
+                      Remove
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))}
