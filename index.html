@@ -2549,6 +2549,7 @@ function AdminPanel(){
   const[autoSyncEnabled,setAutoSyncEnabled]=useState(!!_cache.sync_settings?.enabled);
   const[syncIntervalMin,setSyncIntervalMin]=useState(_cache.sync_settings?.intervalMin||30);
   const[autoSyncMsg,setAutoSyncMsg]=useState('');
+  const[payDiag,setPayDiag]=useState(null);
   const lastSynced=_cache.sync_settings?.lastSynced
     ?new Date(_cache.sync_settings.lastSynced).toLocaleString('en-IN',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})
     :null;
@@ -3029,6 +3030,23 @@ function AdminPanel(){
                 Pull from Google Sheet
               </button>
               <span id="sheetSyncStatus" style={{fontSize:12.5,color:B.muted}}></span>
+            </div>
+            <div style={{marginTop:10}}>
+              <button onClick={()=>{
+                const rows=_cache.payment_rows||[];
+                const dated=rows.filter(r=>r.date&&r.date.trim());
+                const sample=rows.slice(0,5).map(r=>`"${r.date}" → ${parsePayDate(r.date)?parsePayDate(r.date).toLocaleDateString('en-IN'):'UNPARSEABLE'} | rm:${r.rm} | ₹${r.amount}`);
+                setPayDiag({total:rows.length,dated:dated.length,col:_payDateKey||'(none detected)',sample});
+              }} style={{padding:'6px 14px',background:'#e8f5e9',color:'#1b5e20',border:'1.5px solid #1b5e20',borderRadius:8,fontSize:12,fontWeight:600,cursor:'pointer'}}>
+                Check Payment Data
+              </button>
+              {payDiag&&<div style={{marginTop:8,background:'#f8f9fa',border:'1.5px solid #dee2e6',borderRadius:8,padding:'10px 14px',fontSize:12,fontFamily:'monospace'}}>
+                <div><b>Rows in cache:</b> {payDiag.total} &nbsp;|&nbsp; <b>With date:</b> {payDiag.dated} &nbsp;|&nbsp; <b>Date column:</b> {payDiag.col}</div>
+                <div style={{marginTop:6,color:'#555'}}><b>First 5 rows:</b></div>
+                {payDiag.sample.map((s,i)=><div key={i} style={{color:'#333'}}>{s}</div>)}
+                {payDiag.total===0&&<div style={{color:'#c62828',marginTop:4,fontFamily:'sans-serif',fontWeight:600}}>No payment rows loaded — run "Pull from Google Sheet" first.</div>}
+                {payDiag.total>0&&payDiag.dated===0&&<div style={{color:'#e65100',marginTop:4,fontFamily:'sans-serif',fontWeight:600}}>Rows exist but none have dates — date column not matched. Check column name in sheet.</div>}
+              </div>}
             </div>
           </Card>
 
