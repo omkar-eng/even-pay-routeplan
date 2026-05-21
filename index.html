@@ -237,32 +237,71 @@ async function syncFromGoogleSheet(){
   try{
     const jTargets=await fetch(SHEET_SCRIPT_URL+'?tab=targets').then(r=>r.json());
     if(jTargets.status!=='ok')throw new Error(jTargets.message||'Script error');
-    const data={targets:jTargets.data.targets,tlRmMap:[]};
-    const tlLookup={};
-    if(data.tlRmMap){
-      data.tlRmMap.forEach(r=>{if(r.RM)tlLookup[r.RM]={tl:r.TL,city:r.City};});
-    }
-    const s=loadStore();
-    const now=new Date().toISOString();
-    if(data.targets){
-      data.targets.forEach(r=>{
-        const rm=r.RM;
-        const tl=r['TL/ATL']||tlLookup[rm]?.tl||'';
-        const city=r.City||tlLookup[rm]?.city||'';
-        if(!rm||!tl)return;
-        const key=safeKey(`${tl}|${rm}`);
-        s[key]={...s[key],tl,rm,city,
-          target:parseFloat(r['Target (INR)'])||0,
-          netAchieved:parseFloat(r['Net Achieved (INR)'])||0,
-          monthlyLeads:parseFloat(r['Monthly Leads Target'])||0,
-          updatedAt:now};
-      });
-    }
+    const rows=jTargets.data.targets||[];
+
+    // Case-insensitive RM lookup
+    const rmByName={};
+    ALL_RMS.forEach(r=>{rmByName[r.rm.toLowerCase().trim()]=r;});
+
+    // Ensure all TLs from sheet exist in ZONE.tls
+    const tlByName={};
+    ZONE.tls.forEach(t=>{tlByName[t.name.toLowerCase().trim()]=t;});
+    rows.forEach(r=>{
+      const tl=(r['TL/ATL']||'').trim();const city=(r.City||'').trim();
+      if(tl&&!tlByName[tl.toLowerCase()]){
+        const nt={name:tl,city,rms:0,filledRMs:0,target:0,achieved:0,leads:0,renewals:0,
+          monthlyTgt:0,monthlyAchv:0,dailyTgt:0,dailyAchv:0,renewalTgt:0,renewalAchv:0};
+        ZONE.tls.push(nt);tlByName[tl.toLowerCase()]=nt;
+      }
+    });
+
+    const s=loadStore();const now=new Date().toISOString();
+    rows.forEach(r=>{
+      const sheetRM=(r.RM||'').trim();
+      const sheetTL=(r['TL/ATL']||'').trim();
+      const sheetCity=(r.City||'').trim();
+      if(!sheetRM||!sheetTL)return;
+
+      // Find or create RM entry
+      let rmObj=rmByName[sheetRM.toLowerCase()];
+      if(!rmObj){
+        rmObj={rm:sheetRM,tl:sheetTL,city:sheetCity,target:0,achieved:0,refund:0,
+          monthlyTgt:0,monthlyAchv:0,dailyTgt:0,dailyAchv:0,renewalTgt:0,renewalAchv:0,leads:0,clinics:[]};
+        ALL_RMS.push(rmObj);rmByName[sheetRM.toLowerCase()]=rmObj;
+      }
+
+      // Apply sheet values directly to ALL_RMS entry
+      rmObj.tl=sheetTL;rmObj.city=sheetCity||rmObj.city;
+      rmObj.target=parseFloat(r['Target (INR)'])||0;
+      rmObj.achieved=parseFloat(r['Net Achieved (INR)'])||0;
+      rmObj.monthlyTgt=parseFloat(r['Monthly Leads Target'])||0;
+
+      // Persist to store using canonical name
+      const key=safeKey(`${rmObj.tl}|${rmObj.rm}`);
+      s[key]={...s[key],tl:rmObj.tl,rm:rmObj.rm,city:rmObj.city,
+        target:rmObj.target,netAchieved:rmObj.achieved,monthlyLeads:rmObj.monthlyTgt,updatedAt:now};
+    });
+
+    // Recompute all aggregates
+    ZONE.tls.forEach(tl=>{
+      const rms=ALL_RMS.filter(r=>r.tl===tl.name);
+      tl.target=rms.reduce((s,r)=>s+(r.target||0),0);
+      tl.achieved=rms.reduce((s,r)=>s+(r.achieved||0),0);
+      tl.monthlyTgt=rms.reduce((s,r)=>s+(r.monthlyTgt||0),0);
+      tl.rms=rms.length;
+    });
+    ZONE.cities.forEach(city=>{
+      const ct=ZONE.tls.filter(t=>t.city===city.name);
+      city.target=ct.reduce((s,t)=>s+t.target,0);
+      city.achieved=ct.reduce((s,t)=>s+t.achieved,0);
+      city.rms=ALL_RMS.filter(r=>r.city===city.name).length;
+    });
+    ZONE.target=ZONE.tls.reduce((s,t)=>s+t.target,0);
+    ZONE.achieved=ZONE.tls.reduce((s,t)=>s+t.achieved,0);
+
     saveStore(s);
-    applyStoreToRMs();
     window.dispatchEvent(new Event('rmDataUpdated'));
-    const n=data.targets?.length||0;
-    if(el){el.textContent='✅ Synced '+n+' RMs';el.style.color='#16A34A';}
+    if(el){el.textContent='✅ Synced '+rows.length+' RMs';el.style.color='#16A34A';}
     setTimeout(()=>{if(el)el.textContent='';},4000);
   }catch(e){
     if(el){el.textContent='❌ '+e.message;el.style.color='#DC2626';}
@@ -376,9 +415,17 @@ const ALL_RMS=[
 // ── APPLY STORE → GLOBALS ─────────────────────────────────────────────────
 function applyStoreToRMs(){
   const store=_cache.targets||{};
-  ALL_RMS.forEach(r=>{
-    const e=store[safeKey(`${r.tl}|${r.rm}`)];
-    if(!e)return;
+  const rmByName={};
+  ALL_RMS.forEach(r=>{rmByName[r.rm.toLowerCase().trim()]=r;});
+
+  Object.values(store).forEach(e=>{
+    if(!e.rm||!e.tl)return;
+    let r=rmByName[e.rm.toLowerCase().trim()];
+    if(!r){
+      r={rm:e.rm,tl:e.tl,city:e.city||'',target:0,achieved:0,refund:0,
+        monthlyTgt:0,monthlyAchv:0,dailyTgt:0,dailyAchv:0,renewalTgt:0,renewalAchv:0,leads:0,clinics:[]};
+      ALL_RMS.push(r);rmByName[e.rm.toLowerCase().trim()]=r;
+    }
     if(e.target!==undefined)         r.target       =e.target;
     if(e.netAchieved!==undefined)    r.achieved     =e.netAchieved;
     if(e.refund!==undefined)         r.refund       =e.refund;
@@ -389,6 +436,7 @@ function applyStoreToRMs(){
     if(e.renewalTarget!==undefined)  r.renewalTgt   =e.renewalTarget;
     if(e.renewalAchieved!==undefined)r.renewalAchv  =e.renewalAchieved;
   });
+
   ZONE.tls.forEach(tl=>{
     const rms=ALL_RMS.filter(r=>r.tl===tl.name);
     tl.target    =rms.reduce((s,r)=>s+(r.target||0),0);
@@ -404,6 +452,7 @@ function applyStoreToRMs(){
     const ct=ZONE.tls.filter(t=>t.city===city.name);
     city.target  =ct.reduce((s,t)=>s+t.target,0);
     city.achieved=ct.reduce((s,t)=>s+t.achieved,0);
+    city.rms     =ALL_RMS.filter(r=>r.city===city.name).length;
   });
   ZONE.target  =ZONE.tls.reduce((s,t)=>s+t.target,0);
   ZONE.achieved=ZONE.tls.reduce((s,t)=>s+t.achieved,0);
