@@ -329,7 +329,7 @@ function computeFilteredPayments(from,to){
     if(r.tl)payByTL[r.tl]=(payByTL[r.tl]||0)+r.amount;
   });
   const{rmPayments}=buildRMPayments(payByRM,ALL_RMS.map(r=>r.rm));
-  const total=Object.values(payByTL).reduce((s,v)=>s+v,0);
+  const total=filtered.reduce((s,r)=>s+r.amount,0);
   return{rmPayments,tlPayments:payByTL,total,rows:filtered};
 }
 function buildRMPayments(payByRM, targetRMNames){
