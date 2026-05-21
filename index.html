@@ -217,6 +217,7 @@ async function initFirestore(){
   }catch(e){console.warn('Firestore:',e);}
   await loadClinicNotes();
   _cache.loaded=true;
+  applyStoreToRMs();
 }
 function loadStore(){return _cache.targets||{};}
 function saveStore(s){
@@ -258,6 +259,8 @@ async function syncFromGoogleSheet(){
       });
     }
     saveStore(s);
+    applyStoreToRMs();
+    window.dispatchEvent(new Event('rmDataUpdated'));
     const n=data.targets?.length||0;
     if(el){el.textContent='✅ Synced '+n+' RMs';el.style.color='#16A34A';}
     setTimeout(()=>{if(el)el.textContent='';},4000);
@@ -369,6 +372,42 @@ const ALL_RMS=[
     {name:'Niragas Child Clinic',locality:'Bhosari',leads:73,status:'Growing',freq:'Tri-weekly',slot:'11:30–1:30',reason:'Growing Bhosari clinic — tri-weekly to sustain trajectory; evaluate upgrade if leads exceed 100.'},
   ]},
 ];
+
+// ── APPLY STORE → GLOBALS ─────────────────────────────────────────────────
+function applyStoreToRMs(){
+  const store=_cache.targets||{};
+  ALL_RMS.forEach(r=>{
+    const e=store[safeKey(`${r.tl}|${r.rm}`)];
+    if(!e)return;
+    if(e.target!==undefined)         r.target       =e.target;
+    if(e.netAchieved!==undefined)    r.achieved     =e.netAchieved;
+    if(e.refund!==undefined)         r.refund       =e.refund;
+    if(e.monthlyLeads!==undefined)   r.monthlyTgt   =e.monthlyLeads;
+    if(e.monthlyAchieved!==undefined)r.monthlyAchv  =e.monthlyAchieved;
+    if(e.dailyLeads!==undefined)     r.dailyTgt     =e.dailyLeads;
+    if(e.dailyAchieved!==undefined)  r.dailyAchv    =e.dailyAchieved;
+    if(e.renewalTarget!==undefined)  r.renewalTgt   =e.renewalTarget;
+    if(e.renewalAchieved!==undefined)r.renewalAchv  =e.renewalAchieved;
+  });
+  ZONE.tls.forEach(tl=>{
+    const rms=ALL_RMS.filter(r=>r.tl===tl.name);
+    tl.target    =rms.reduce((s,r)=>s+(r.target||0),0);
+    tl.achieved  =rms.reduce((s,r)=>s+(r.achieved||0),0);
+    tl.monthlyTgt=rms.reduce((s,r)=>s+(r.monthlyTgt||0),0);
+    tl.monthlyAchv=rms.reduce((s,r)=>s+(r.monthlyAchv||0),0);
+    tl.dailyTgt  =rms.reduce((s,r)=>s+(r.dailyTgt||0),0);
+    tl.renewalTgt=rms.reduce((s,r)=>s+(r.renewalTgt||0),0);
+    tl.renewalAchv=rms.reduce((s,r)=>s+(r.renewalAchv||0),0);
+    tl.rms       =rms.length;
+  });
+  ZONE.cities.forEach(city=>{
+    const ct=ZONE.tls.filter(t=>t.city===city.name);
+    city.target  =ct.reduce((s,t)=>s+t.target,0);
+    city.achieved=ct.reduce((s,t)=>s+t.achieved,0);
+  });
+  ZONE.target  =ZONE.tls.reduce((s,t)=>s+t.target,0);
+  ZONE.achieved=ZONE.tls.reduce((s,t)=>s+t.achieved,0);
+}
 
 // ── HELPERS ────────────────────────────────────────────────────────────────
 const fmtN=v=>v==null?'—':('₹'+Number(v).toLocaleString('en-IN'));
@@ -2384,12 +2423,18 @@ function AdminPanel(){
 // ── FULL ACCESS VIEW ───────────────────────────────────────────────────────
 function FullAccessView({user,onLogout}){
   const[screen,setScreen]=useState('zone');
+  const[dataVer,setDataVer]=useState(0);
   const isMobile=useIsMobile();
   const isAdmin=user.role==='admin';
+  useEffect(()=>{
+    const h=()=>setDataVer(v=>v+1);
+    window.addEventListener('rmDataUpdated',h);
+    return()=>window.removeEventListener('rmDataUpdated',h);
+  },[]);
   const content=<>
-    {screen==='zone'&&<ZoneOverviewPanel/>}
+    {screen==='zone'&&<ZoneOverviewPanel key={dataVer}/>}
     {screen==='route'&&<RoutePlanPanel user={user}/>}
-    {screen==='teams'&&<AllTeamsPanel/>}
+    {screen==='teams'&&<AllTeamsPanel key={dataVer}/>}
     {screen==='admin'&&<AdminPanel/>}
   </>;
   if(isMobile) return(
