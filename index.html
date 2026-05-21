@@ -234,11 +234,15 @@ async function syncFromGoogleSheet(){
   const el=document.getElementById('sheetSyncStatus');
   if(el){el.textContent='Syncing…';el.style.color='#64748B';}
   try{
-    const resp=await fetch(SHEET_SCRIPT_URL+'?tab=all');
-    if(!resp.ok)throw new Error('HTTP '+resp.status);
-    const data=await resp.json();
-    console.log('GSheet raw response:',JSON.stringify(data).substring(0,1000));
-    if(el){el.textContent='DEBUG — open Console (F12) to see raw response. Keys: '+Object.keys(data).join(', ');el.style.color='#D97706';}
+    const [r1,r2,r3]=await Promise.all([
+      fetch(SHEET_SCRIPT_URL+'?tab=RM+Targets').then(r=>r.json()),
+      fetch(SHEET_SCRIPT_URL+'?tab=RM+TL+Mapping').then(r=>r.json()),
+      fetch(SHEET_SCRIPT_URL).then(r=>r.json()),
+    ]);
+    console.log('?tab=RM+Targets:',JSON.stringify(r1).substring(0,500));
+    console.log('?tab=RM+TL+Mapping:',JSON.stringify(r2).substring(0,500));
+    console.log('no params:',JSON.stringify(r3).substring(0,500));
+    if(el){el.textContent='DEBUG — see Console (F12) for all 3 responses';el.style.color='#D97706';}
     return;
   }catch(e){
     if(el){el.textContent='❌ '+e.message;el.style.color='#DC2626';}
