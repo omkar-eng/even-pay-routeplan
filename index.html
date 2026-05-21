@@ -231,7 +231,7 @@ function saveTLTargetsStore(s){_cache.tl_targets=s;db.collection('config').doc('
 // ── GOOGLE SHEETS INTEGRATION ──────────────────────────────────────────────
 const SHEET_SCRIPT_URL='https://script.google.com/macros/s/AKfycbwSaHdZY5TmRjWUhafHyruMFPq9IRszlVo6lL1T8ivRp5kgp2GlsKqBt7TClXzaIi5Z/exec';
 
-// Edit distance on first word — catches typos like "Yalaling" vs "Yallaling"
+// Edit distance — catches typos like "Yalaling" vs "Yallaling"
 function _editDist(a,b){
   const m=a.length,n=b.length,dp=[];
   for(let i=0;i<=m;i++){dp[i]=new Array(n+1).fill(0);dp[i][0]=i;}
@@ -240,21 +240,38 @@ function _editDist(a,b){
     dp[i][j]=a[i-1]===b[j-1]?dp[i-1][j-1]:1+Math.min(dp[i-1][j],dp[i][j-1],dp[i-1][j-1]);
   return dp[m][n];
 }
-// Returns {amt, fullName} — fullName is the canonical payment-tab name when a fuzzy match is found
-function resolveRMPayment(targetName,payByRM){
-  const lo=targetName.toLowerCase().trim();
-  if(payByRM[lo]!=null)return{amt:payByRM[lo],fullName:targetName};
-  const fw=lo.split(/\s+/)[0];
-  let best=0,bestD=Infinity,bestKey=null;
-  for(const[k,v]of Object.entries(payByRM)){
-    const d=_editDist(fw,k.split(/\s+/)[0]);
-    if(d<=2&&d<bestD){bestD=d;best=v;bestKey=k;}
+// Build two maps from payment rows + target RM list:
+//   rmPayments[targetNameLower] = total amount (all name variants summed)
+//   rmDisplayName[targetNameLower] = fullest payment-tab name found
+function buildRMPayments(payByRM, targetRMNames){
+  const rmPayments={}, rmDisplayName={};
+  // Pass 1 — exact match (highest confidence, claim these first)
+  const claimed=new Set();
+  for(const[k,amt]of Object.entries(payByRM)){
+    const t=targetRMNames.find(n=>n.toLowerCase()===k);
+    if(t){
+      const lo=t.toLowerCase();
+      rmPayments[lo]=(rmPayments[lo]||0)+amt;
+      if(!rmDisplayName[lo]||k.length>rmDisplayName[lo].length)rmDisplayName[lo]=k;
+      claimed.add(k);
+    }
   }
-  // Use payment-tab full name only if it is longer (has more info) than the targets-tab name
-  const fullName=bestKey&&bestKey.length>lo.length
-    ?bestKey.split(' ').map(w=>w.charAt(0).toUpperCase()+w.slice(1)).join(' ')
-    :targetName;
-  return{amt:best,fullName};
+  // Pass 2 — fuzzy first-word match for unclaimed payment keys
+  for(const[k,amt]of Object.entries(payByRM)){
+    if(claimed.has(k))continue;
+    const kfw=k.split(/\s+/)[0];
+    let bestD=Infinity,bestT=null;
+    for(const t of targetRMNames){
+      const d=_editDist(kfw,t.toLowerCase().split(/\s+/)[0]);
+      if(d<=2&&d<bestD){bestD=d;bestT=t;}
+    }
+    if(bestT){
+      const lo=bestT.toLowerCase();
+      rmPayments[lo]=(rmPayments[lo]||0)+amt;
+      if(!rmDisplayName[lo]||k.length>rmDisplayName[lo].length)rmDisplayName[lo]=k;
+    }
+  }
+  return{rmPayments,rmDisplayName};
 }
 
 async function syncFromGoogleSheet(){
@@ -280,6 +297,10 @@ async function syncFromGoogleSheet(){
       if(rm)payByRM[rm]=(payByRM[rm]||0)+amt;
       if(tl)payByTL[tl]=(payByTL[tl]||0)+amt;
     });
+
+    // Attribute payments to target RMs (handles all name variants / typos)
+    const targetRMNames=rows.map(r=>(r.RM||'').trim()).filter(Boolean);
+    const{rmPayments,rmDisplayName}=buildRMPayments(payByRM,targetRMNames);
 
     // Preserve existing clinic data keyed by lowercase RM name
     const savedClinics={};
@@ -310,14 +331,20 @@ async function syncFromGoogleSheet(){
       const sheetTL=(r['TL/ATL']||'').trim();
       const sheetCity=(r.City||'').trim();
       if(!sheetRM||!sheetTL)return;
-      const{amt:paid,fullName:displayRM}=resolveRMPayment(sheetRM,payByRM);
+      const sheetRMLo=sheetRM.toLowerCase();
+      const paid=rmPayments[sheetRMLo]||0;
+      const payFull=rmDisplayName[sheetRMLo];
+      // Use longer payment-tab name as display if available (it has the full name)
+      const displayRM=payFull&&payFull.length>sheetRMLo.length
+        ?payFull.split(' ').map(w=>w.charAt(0).toUpperCase()+w.slice(1)).join(' ')
+        :sheetRM;
       const rmObj={
         rm:displayRM,tl:sheetTL,city:sheetCity,
         target:parseFloat(r['Target (INR)'])||0,
         achieved:paid,
         refund:0,monthlyTgt:parseFloat(r['Monthly Leads Target'])||0,
         monthlyAchv:0,dailyTgt:0,dailyAchv:0,renewalTgt:0,renewalAchv:0,
-        leads:0,clinics:savedClinics[sheetRM.toLowerCase()]||savedClinics[displayRM.toLowerCase()]||[]
+        leads:0,clinics:savedClinics[sheetRMLo]||savedClinics[displayRM.toLowerCase()]||[]
       };
       ALL_RMS.push(rmObj);
       const key=safeKey(`${sheetTL}|${displayRM}`);
