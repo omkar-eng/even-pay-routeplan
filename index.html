@@ -244,12 +244,15 @@ async function syncFromGoogleSheet(){
     const rows=jTargets.data.targets||[];
     const paymentRows=jPayments.data.payments||[];
 
-    // Sum actual payments by RM name (case-insensitive); field is 'Rm Name'
+    // Sum actual payments by RM name and by TL name (case-insensitive)
     const payByRM={};
+    const payByTL={};
     paymentRows.forEach(p=>{
       const rm=(p['Rm Name']||'').trim().toLowerCase();
-      if(!rm)return;
-      payByRM[rm]=(payByRM[rm]||0)+(parseFloat(p.Amount)||0);
+      const tl=(p['ATL/TL Name']||'').trim().toLowerCase();
+      const amt=parseFloat(p.Amount)||0;
+      if(rm) payByRM[rm]=(payByRM[rm]||0)+amt;
+      if(tl) payByTL[tl]=(payByTL[tl]||0)+amt;
     });
 
     // Case-insensitive RM lookup
@@ -292,12 +295,12 @@ async function syncFromGoogleSheet(){
         target:rmObj.target,netAchieved:rmObj.achieved,monthlyLeads:rmObj.monthlyTgt,updatedAt:now};
     });
 
-    // Recompute all aggregates
+    // Recompute all aggregates — use payByTL for achieved (avoids RM name mismatch)
     ZONE.tls.forEach(tl=>{
       const n=tl.name.toLowerCase();
       const rms=ALL_RMS.filter(r=>r.tl.toLowerCase()===n);
       tl.target=rms.reduce((s,r)=>s+(r.target||0),0);
-      tl.achieved=rms.reduce((s,r)=>s+(r.achieved||0),0);
+      tl.achieved=payByTL[n]!=null?payByTL[n]:rms.reduce((s,r)=>s+(r.achieved||0),0);
       tl.monthlyTgt=rms.reduce((s,r)=>s+(r.monthlyTgt||0),0);
       tl.rms=rms.length;tl.filledRMs=rms.length;
     });
@@ -315,7 +318,8 @@ async function syncFromGoogleSheet(){
     window.dispatchEvent(new Event('rmDataUpdated'));
     const total=Object.values(payByRM).reduce((s,v)=>s+v,0);
     console.log('[SYNC] payByRM total:',total,'ZONE.achieved:',ZONE.achieved,'ALL_RMS count:',ALL_RMS.length);
-    console.log('[SYNC] ZONE.tls achieved breakdown:',ZONE.tls.map(t=>t.name+':'+t.achieved));
+    console.log('[SYNC] payByTL keys:',Object.keys(payByTL));
+    console.log('[SYNC] ZONE.tls names:',ZONE.tls.map(t=>t.name));
     if(el){el.textContent='✅ Synced '+rows.length+' RMs · Pay:₹'+total.toLocaleString('en-IN')+' Zone:₹'+ZONE.achieved.toLocaleString('en-IN');el.style.color='#16A34A';}
     setTimeout(()=>{if(el)el.textContent='';},8000);
   }catch(e){
