@@ -235,9 +235,10 @@ async function syncFromGoogleSheet(){
   const el=document.getElementById('sheetSyncStatus');
   if(el){el.textContent='Syncing…';el.style.color='#64748B';}
   try{
+    const bust='&_='+Date.now();
     const [jTargets,jPayments]=await Promise.all([
-      fetch(SHEET_SCRIPT_URL+'?tab=targets').then(r=>r.json()),
-      fetch(SHEET_SCRIPT_URL+'?tab=payments').then(r=>r.json()),
+      fetch(SHEET_SCRIPT_URL+'?tab=targets'+bust,{cache:'no-store'}).then(r=>r.json()),
+      fetch(SHEET_SCRIPT_URL+'?tab=payments'+bust,{cache:'no-store'}).then(r=>r.json()),
     ]);
     if(jTargets.status!=='ok')throw new Error('targets: '+(jTargets.message||'error'));
     if(jPayments.status!=='ok')throw new Error('payments: '+(jPayments.message||'error'));
@@ -321,7 +322,8 @@ async function syncFromGoogleSheet(){
     const tlAchMap={};
     ZONE.tls.forEach(tl=>{tlAchMap[safeKey(tl.name)]={name:tl.name,city:tl.city,achieved:tl.achieved,target:tl.target};});
     await Promise.all([saveStore(s),db.collection('config').doc('tl_achieved').set(tlAchMap).catch(e=>console.warn('tl_achieved write:',e))]);
-    if(el){el.textContent='✅ Synced '+rows.length+' RMs · ₹'+total.toLocaleString('en-IN')+' collected — reloading…';el.style.color='#16A34A';}
+    const sampleNames=rows.slice(0,3).map(r=>(r.RM||'').trim()).join(', ');
+    if(el){el.textContent='✅ Synced '+rows.length+' RMs · ₹'+total.toLocaleString('en-IN')+' | Sheet: '+sampleNames+' … — reloading…';el.style.color='#16A34A';}
     setTimeout(()=>window.location.reload(),1500);
   }catch(e){
     if(el){el.textContent='❌ '+e.message;el.style.color='#DC2626';}
