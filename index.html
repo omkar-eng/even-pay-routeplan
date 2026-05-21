@@ -220,10 +220,9 @@ async function initFirestore(){
   applyStoreToRMs();
 }
 function loadStore(){return _cache.targets||{};}
-function saveStore(s){
+async function saveStore(s){
   _cache.targets=s;
-  Object.entries(s).forEach(([k,v])=>db.collection('targets').doc(safeKey(k)).set(v).catch(()=>{}));
-  return true;
+  await Promise.all(Object.entries(s).map(([k,v])=>db.collection('targets').doc(safeKey(k)).set(v).catch(e=>console.warn('write:',k,e))));
 }
 function loadTLTargets(){return _cache.tl_targets||{};}
 function saveTLTargetsStore(s){_cache.tl_targets=s;db.collection('config').doc('tl_targets').set(s).catch(()=>{});return true;}
@@ -316,11 +315,11 @@ async function syncFromGoogleSheet(){
     ZONE.target=ZONE.tls.reduce((s,t)=>s+t.target,0);
     ZONE.achieved=ZONE.tls.reduce((s,t)=>s+t.achieved,0);
 
-    saveStore(s);
-    window.dispatchEvent(new Event('rmDataUpdated'));
     const total=Object.values(payByTL).reduce((s,v)=>s+v,0);
-    if(el){el.textContent='✅ Synced '+rows.length+' RMs · ₹'+total.toLocaleString('en-IN')+' collected';el.style.color='#16A34A';}
-    setTimeout(()=>{if(el)el.textContent='';},5000);
+    if(el){el.textContent='💾 Saving '+rows.length+' RMs…';el.style.color='#64748B';}
+    await saveStore(s);
+    if(el){el.textContent='✅ Synced '+rows.length+' RMs · ₹'+total.toLocaleString('en-IN')+' collected — reloading…';el.style.color='#16A34A';}
+    setTimeout(()=>window.location.reload(),1500);
   }catch(e){
     if(el){el.textContent='❌ '+e.message;el.style.color='#DC2626';}
   }
