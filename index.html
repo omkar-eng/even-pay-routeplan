@@ -237,30 +237,9 @@ async function syncFromGoogleSheet(){
     const resp=await fetch(SHEET_SCRIPT_URL+'?tab=all');
     if(!resp.ok)throw new Error('HTTP '+resp.status);
     const data=await resp.json();
-    const tlLookup={};
-    if(data.tlRmMap){
-      data.tlRmMap.forEach(r=>{if(r.RM)tlLookup[r.RM]={tl:r.TL,city:r.City};});
-    }
-    const s=loadStore();
-    const now=new Date().toISOString();
-    if(data.targets){
-      data.targets.forEach(r=>{
-        const rm=r.RM;
-        const tl=r['TL/ATL']||tlLookup[rm]?.tl||'';
-        const city=r.City||tlLookup[rm]?.city||'';
-        if(!rm||!tl)return;
-        const key=safeKey(`${tl}|${rm}`);
-        s[key]={...s[key],tl,rm,city,
-          target:parseFloat(r['Target (INR)'])||0,
-          netAchieved:parseFloat(r['Net Achieved (INR)'])||0,
-          monthlyLeads:parseFloat(r['Monthly Leads Target'])||0,
-          updatedAt:now};
-      });
-    }
-    saveStore(s);
-    const n=data.targets?.length||0;
-    if(el){el.textContent='✅ Synced '+n+' RMs';el.style.color='#16A34A';}
-    setTimeout(()=>{if(el)el.textContent='';},4000);
+    console.log('GSheet raw response:',JSON.stringify(data).substring(0,1000));
+    if(el){el.textContent='DEBUG — open Console (F12) to see raw response. Keys: '+Object.keys(data).join(', ');el.style.color='#D97706';}
+    return;
   }catch(e){
     if(el){el.textContent='❌ '+e.message;el.style.color='#DC2626';}
   }
