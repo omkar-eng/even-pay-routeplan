@@ -1939,7 +1939,16 @@ function ZoneOverviewPanel(){
   const[tab,setTab]=useState('tl');
   const[filterTL,setFilterTL]=useState('all');
   const[filterCity,setFilterCity]=useState('all');
-  const[dateRange,setDateRange]=useState('This Month');
+  const[dateRange,setDateRange]=useState('All Time');
+  const[customFrom,setCustomFrom]=useState('');
+  const[customTo,setCustomTo]=useState('');
+  const[singleDate,setSingleDate]=useState('');
+  const filtData=(()=>{
+    if(dateRange==='All Time')return null;
+    if(dateRange==='Single Date'){if(!singleDate)return null;const sd=parseDateInput(singleDate);return computeFilteredPayments(sd,sd);}
+    if(dateRange==='Custom'){if(!customFrom||!customTo)return null;return computeFilteredPayments(parseDateInput(customFrom),parseDateInput(customTo));}
+    const r=getDateRangeFromLabel(dateRange);return r?computeFilteredPayments(r.from,r.to):null;
+  })();
   const actual=ZONE.achieved-ZONE.refund;const zp=pct(actual,ZONE.target);
   const totalRMs=ZONE.cities.reduce((s,c)=>s+c.rms,0);
   const filledRMs=ZONE.cities.reduce((s,c)=>s+c.filledRMs,0);
@@ -1950,9 +1959,11 @@ function ZoneOverviewPanel(){
   const rmRanked=[...ALL_RMS].filter(r=>r.target>0).map(r=>{const p=pct(r.achieved,r.target);return {...r,p};}).sort((a,b)=>b.p-a.p);
   const top5=rmRanked.slice(0,5);const bot5=rmRanked.slice(-5).reverse();
 
+  const filtTotal=filtData?filtData.total:actual;
+  const filtZp=pct(filtTotal,ZONE.target);
   const KpiRow=()=><div style={{display:'flex',gap:16,marginBottom:24}}>
     <StatCard title="Total Target" value={fmtN(ZONE.target)} icon="🎯"/>
-    <StatCard title="Actual Achieved" value={fmtN(actual)} sub={`${zp}% of target`} icon="💰" highlight/>
+    <StatCard title={filtData?`Payments (${dateRange})`:'Actual Achieved'} value={fmtN(filtTotal)} sub={`${filtZp}% of target`} icon="💰" highlight/>
     <StatCard title="RMs Filled" value={`${filledRMs} / ${totalRMs}`} icon="👥"/>
     <StatCard title="Monthly Leads" value={`${ZONE.leads.achieved} / ${ZONE.leads.target}`} icon="📋"/>
   </div>;
@@ -2000,10 +2011,19 @@ function ZoneOverviewPanel(){
             <div style={{fontSize:24,fontWeight:800,color:B.navy}}>Zonal Overview</div>
             <div style={{color:B.muted,fontSize:13,marginTop:2}}>{new Date().toLocaleDateString('en-IN',{weekday:'long',day:'numeric',month:'long',year:'numeric'})}</div>
           </div>
-          <div style={{display:'flex',gap:10,alignItems:'center'}}>
-            <select value={dateRange} onChange={e=>setDateRange(e.target.value)} style={{padding:'8px 14px',border:`1.5px solid ${B.line}`,borderRadius:10,fontSize:13,background:B.white,outline:'none',cursor:'pointer',fontWeight:600,color:B.ink}}>
-              {['This Week','This Month','Last Month','Last 3 Months'].map(o=><option key={o}>{o}</option>)}
+          <div style={{display:'flex',gap:10,alignItems:'center',flexWrap:'wrap'}}>
+            <select value={dateRange} onChange={e=>setDateRange(e.target.value)} style={{padding:'8px 14px',border:`1.5px solid ${filtData?B.brand:B.line}`,borderRadius:10,fontSize:13,background:B.white,outline:'none',cursor:'pointer',fontWeight:600,color:filtData?B.brand:B.ink}}>
+              {['All Time','Single Date','This Week','This Month','Last Month','Last 3 Months','Custom'].map(o=><option key={o}>{o}</option>)}
             </select>
+            {dateRange==='Single Date'&&<div style={{display:'flex',gap:6,alignItems:'center'}}>
+              <span style={{color:B.muted,fontSize:12,fontWeight:600}}>Pick date:</span>
+              <input type="date" value={singleDate} onChange={e=>setSingleDate(e.target.value)} style={{padding:'7px 10px',border:`1.5px solid ${B.brand}`,borderRadius:8,fontSize:12,outline:'none'}}/>
+            </div>}
+            {dateRange==='Custom'&&<div style={{display:'flex',gap:6,alignItems:'center'}}>
+              <input type="date" value={customFrom} onChange={e=>setCustomFrom(e.target.value)} style={{padding:'7px 10px',border:`1.5px solid ${B.line}`,borderRadius:8,fontSize:12,outline:'none'}}/>
+              <span style={{color:B.muted,fontSize:12}}>to</span>
+              <input type="date" value={customTo} onChange={e=>setCustomTo(e.target.value)} style={{padding:'7px 10px',border:`1.5px solid ${B.line}`,borderRadius:8,fontSize:12,outline:'none'}}/>
+            </div>}
             <button onClick={()=>downloadCSV(
               ['TL','City','RMs','Target','Achieved','Target %'],
               ZONE.tls.map(t=>[t.name,t.city,t.rms,t.target,t.achieved,pct(t.achieved,t.target)+'%'])
@@ -2013,6 +2033,13 @@ function ZoneOverviewPanel(){
             </button>
           </div>
         </div>
+
+        {filtData&&(_cache.payment_rows||[]).length===0&&<div style={{background:'#fffbea',border:`1px solid #fde68a`,borderRadius:10,padding:'8px 14px',marginBottom:12,fontSize:12,color:B.amber,fontWeight:600}}>
+          No payment data loaded yet — run a sync first to enable date filtering.
+        </div>}
+        {filtData&&(_cache.payment_rows||[]).length>0&&<div style={{background:B.brandLight,border:`1px solid ${B.brand}`,borderRadius:10,padding:'8px 14px',marginBottom:16,fontSize:12,color:B.brand,fontWeight:600}}>
+          Showing payments for: <strong>{dateRange==='Custom'?`${customFrom} to ${customTo}`:dateRange==='Single Date'?singleDate:dateRange}</strong> — Total: <strong>{fmt(filtData.total)}</strong> across {filtData.rows.length} payment{filtData.rows.length!==1?'s':''}
+        </div>}
 
         <KpiRow/>
 
@@ -2030,10 +2057,11 @@ function ZoneOverviewPanel(){
         {tab==='tl'&&<>
           <div className="tbl-wrap">
             <table className="dt">
-              <thead><tr><th>TL / ATL</th><th className="num"># RMs</th><th className="num">RMs Filled</th><th className="num">Target (₹)</th><th className="num">Refund (₹)</th><th className="num">Net Achieved (₹)</th><th className="num">Actual (₹)</th><th className="num">Target %</th><th className="num">Monthly Tgt</th><th className="num">Monthly Achv</th><th className="num">Mthly %</th><th className="num">Daily Tgt</th><th className="num">Daily Achv</th><th className="num">Renewal Tgt</th><th className="num">Renewal Achv</th></tr></thead>
+              <thead><tr><th>TL / ATL</th><th className="num"># RMs</th><th className="num">RMs Filled</th><th className="num">Target (₹)</th><th className="num">Refund (₹)</th><th className="num">Net Achieved (₹)</th><th className="num">Actual (₹)</th>{filtData&&<th className="num" style={{color:B.brand}}>Payments (₹)</th>}<th className="num">Target %</th><th className="num">Monthly Tgt</th><th className="num">Monthly Achv</th><th className="num">Mthly %</th><th className="num">Daily Tgt</th><th className="num">Daily Achv</th><th className="num">Renewal Tgt</th><th className="num">Renewal Achv</th></tr></thead>
               <tbody>
                 {[...ZONE.tls].sort((a,b)=>pct(b.achieved,b.target)-pct(a.achieved,a.target)).map((t,i)=>{
                   const p=pct(t.achieved,t.target);const mp=pct(t.monthlyAchv,t.monthlyTgt);const dp=pct(t.dailyAchv,t.dailyTgt);
+                  const tlPay=filtData?filtData.tlPayments[t.name.toLowerCase()]||0:null;
                   return <tr key={i}>
                     <td><strong>{t.name}</strong></td>
                     <td className="num">{t.rms}</td>
@@ -2042,6 +2070,7 @@ function ZoneOverviewPanel(){
                     <td className="num">0</td>
                     <td className="num">{Number(t.achieved).toLocaleString('en-IN')}</td>
                     <td className="num">{Number(t.achieved).toLocaleString('en-IN')}</td>
+                    {filtData&&<td className="num" style={{color:B.brand,fontWeight:700}}>{Number(tlPay).toLocaleString('en-IN')}</td>}
                     <td className="num"><span style={{color:pClr(p),fontWeight:700}}>{p}%</span></td>
                     <td className="num">{t.monthlyTgt}</td>
                     <td className="num">{t.monthlyAchv}</td>
@@ -2061,6 +2090,7 @@ function ZoneOverviewPanel(){
                   <td className="num" style={{color:'rgba(255,255,255,.9)',fontWeight:700}}>0</td>
                   <td className="num" style={{color:'rgba(255,255,255,.9)',fontWeight:700}}>{Number(ZONE.tls.reduce((s,t)=>s+t.achieved,0)).toLocaleString('en-IN')}</td>
                   <td className="num" style={{color:'rgba(255,255,255,.9)',fontWeight:700}}>{Number(ZONE.tls.reduce((s,t)=>s+t.achieved,0)).toLocaleString('en-IN')}</td>
+                  {filtData&&<td className="num" style={{color:'#90CAF9',fontWeight:700}}>{Number(filtData.total).toLocaleString('en-IN')}</td>}
                   <td className="num" style={{color:'rgba(255,255,255,.9)',fontWeight:700}}>{pct(ZONE.tls.reduce((s,t)=>s+t.achieved,0),ZONE.tls.reduce((s,t)=>s+t.target,0))}%</td>
                   <td className="num" style={{color:'rgba(255,255,255,.9)',fontWeight:700}}>{ZONE.tls.reduce((s,t)=>s+t.monthlyTgt,0)}</td>
                   <td className="num" style={{color:'rgba(255,255,255,.9)',fontWeight:700}}>{ZONE.tls.reduce((s,t)=>s+t.monthlyAchv,0)}</td>
@@ -2083,11 +2113,12 @@ function ZoneOverviewPanel(){
         {tab==='city'&&<>
           <div className="tbl-wrap">
             <table className="dt">
-              <thead><tr><th>City</th><th className="num"># RMs</th><th className="num">RMs Filled</th><th className="num">Total Target (₹)</th><th className="num">Total Refund (₹)</th><th className="num">Net Achieved (₹)</th><th className="num">Actual Achieved (₹)</th><th className="num">Target %</th><th className="num">Monthly TGT</th><th className="num">Monthly ACHV</th><th className="num">MTHLY %</th></tr></thead>
+              <thead><tr><th>City</th><th className="num"># RMs</th><th className="num">RMs Filled</th><th className="num">Total Target (₹)</th><th className="num">Total Refund (₹)</th><th className="num">Net Achieved (₹)</th><th className="num">Actual Achieved (₹)</th>{filtData&&<th className="num" style={{color:B.brand}}>Payments (₹)</th>}<th className="num">Target %</th><th className="num">Monthly TGT</th><th className="num">Monthly ACHV</th><th className="num">MTHLY %</th></tr></thead>
               <tbody>
                 {ZONE.cities.map((c,i)=>{
                   const p=pct(c.achieved,c.target);const cityTLs=ZONE.tls.filter(t=>t.city===c.name);
                   const mTgt=cityTLs.reduce((s,t)=>s+t.monthlyTgt,0);const mAchv=cityTLs.reduce((s,t)=>s+t.monthlyAchv,0);const mp=pct(mAchv,mTgt);
+                  const cityPay=filtData?cityTLs.reduce((s,t)=>s+(filtData.tlPayments[t.name.toLowerCase()]||0),0):null;
                   return <tr key={i}>
                     <td><strong>{c.name}</strong></td>
                     <td className="num">{c.rms}</td>
@@ -2096,6 +2127,7 @@ function ZoneOverviewPanel(){
                     <td className="num">0</td>
                     <td className="num">{Number(c.achieved).toLocaleString('en-IN')}</td>
                     <td className="num">{Number(c.achieved).toLocaleString('en-IN')}</td>
+                    {filtData&&<td className="num" style={{color:B.brand,fontWeight:700}}>{Number(cityPay).toLocaleString('en-IN')}</td>}
                     <td className="num"><span style={{color:pClr(p),fontWeight:700}}>{p}%</span></td>
                     <td className="num">{mTgt}</td>
                     <td className="num">{mAchv}</td>
@@ -2112,6 +2144,7 @@ function ZoneOverviewPanel(){
                   <td className="num" style={{color:'rgba(255,255,255,.9)',fontWeight:700}}>0</td>
                   <td className="num" style={{color:'rgba(255,255,255,.9)',fontWeight:700}}>{Number(ZONE.cities.reduce((s,c)=>s+c.achieved,0)).toLocaleString('en-IN')}</td>
                   <td className="num" style={{color:'rgba(255,255,255,.9)',fontWeight:700}}>{Number(ZONE.cities.reduce((s,c)=>s+c.achieved,0)).toLocaleString('en-IN')}</td>
+                  {filtData&&<td className="num" style={{color:'#90CAF9',fontWeight:700}}>{Number(filtData.total).toLocaleString('en-IN')}</td>}
                   <td className="num" style={{color:'rgba(255,255,255,.9)',fontWeight:700}}>{pct(ZONE.cities.reduce((s,c)=>s+c.achieved,0),ZONE.cities.reduce((s,c)=>s+c.target,0))}%</td>
                   <td className="num" style={{color:'rgba(255,255,255,.9)',fontWeight:700}}>{ZONE.tls.reduce((s,t)=>s+t.monthlyTgt,0)}</td>
                   <td className="num" style={{color:'rgba(255,255,255,.9)',fontWeight:700}}>{ZONE.tls.reduce((s,t)=>s+t.monthlyAchv,0)}</td>
@@ -2155,12 +2188,13 @@ function ZoneOverviewPanel(){
           </div>
           <div className="tbl-wrap">
             <table className="dt">
-              <thead><tr><th>TL</th><th>RM</th><th>City</th><th className="num">Target (₹)</th><th className="num">Refund (₹)</th><th className="num">Net ACHV (₹)</th><th className="num">Actual (₹)</th><th className="num">Target %</th><th className="num">MTHLY TGT</th><th className="num">MTHLY ACHV</th><th className="num">MTHLY %</th><th className="num">DAILY TGT</th><th className="num">DAILY ACHV</th><th className="num">RENEWAL TGT</th><th className="num">RENEWAL ACHV</th></tr></thead>
+              <thead><tr><th>TL</th><th>RM</th><th>City</th><th className="num">Target (₹)</th><th className="num">Refund (₹)</th><th className="num">Net ACHV (₹)</th><th className="num">Actual (₹)</th>{filtData&&<th className="num" style={{color:B.brand}}>Payments (₹)</th>}<th className="num">Target %</th><th className="num">MTHLY TGT</th><th className="num">MTHLY ACHV</th><th className="num">MTHLY %</th><th className="num">DAILY TGT</th><th className="num">DAILY ACHV</th><th className="num">RENEWAL TGT</th><th className="num">RENEWAL ACHV</th></tr></thead>
               <tbody>
                 {ALL_RMS.filter(r=>(filterTL==='all'||r.tl===filterTL)&&(filterCity==='all'||r.city===filterCity))
                   .sort((a,b)=>pct(b.achieved,b.target)-pct(a.achieved,a.target))
                   .map((r,i)=>{
                     const p=pct(r.achieved,r.target);const mp=pct(r.monthlyAchv,r.monthlyTgt);const dp=pct(r.dailyAchv,r.dailyTgt);
+                    const rmPay=filtData?filtData.rmPayments[r.rm.toLowerCase()]||0:null;
                     return <tr key={i}>
                       <td><strong>{r.tl}</strong></td>
                       <td>{r.rm}</td>
@@ -2169,6 +2203,7 @@ function ZoneOverviewPanel(){
                       <td className="num">{r.refund||0}</td>
                       <td className="num">{Number(r.achieved).toLocaleString('en-IN')}</td>
                       <td className="num">{Number(r.achieved).toLocaleString('en-IN')}</td>
+                      {filtData&&<td className="num" style={{color:B.brand,fontWeight:700}}>{Number(rmPay).toLocaleString('en-IN')}</td>}
                       <td className="num"><span style={{color:pClr(p),fontWeight:700}}>{p}%</span></td>
                       <td className="num">{r.monthlyTgt}</td>
                       <td className="num">{r.monthlyAchv}</td>
@@ -2187,6 +2222,7 @@ function ZoneOverviewPanel(){
                   <td className="num" style={{color:'rgba(255,255,255,.9)',fontWeight:700}}>0</td>
                   <td className="num" style={{color:'rgba(255,255,255,.9)',fontWeight:700}}>{Number(rmF.reduce((s,r)=>s+r.achieved,0)).toLocaleString('en-IN')}</td>
                   <td className="num" style={{color:'rgba(255,255,255,.9)',fontWeight:700}}>{Number(rmF.reduce((s,r)=>s+r.achieved,0)).toLocaleString('en-IN')}</td>
+                  {filtData&&<td className="num" style={{color:'#90CAF9',fontWeight:700}}>{Number(rmF.reduce((s,r)=>s+(filtData.rmPayments[r.rm.toLowerCase()]||0),0)).toLocaleString('en-IN')}</td>}
                   <td className="num" style={{color:'rgba(255,255,255,.9)',fontWeight:700}}>{pct(rmF.reduce((s,r)=>s+r.achieved,0),rmF.reduce((s,r)=>s+r.target,0))}%</td>
                   <td className="num" style={{color:'rgba(255,255,255,.9)',fontWeight:700}}>{rmF.reduce((s,r)=>s+r.monthlyTgt,0)}</td>
                   <td className="num" style={{color:'rgba(255,255,255,.9)',fontWeight:700}}>{rmF.reduce((s,r)=>s+r.monthlyAchv,0)}</td>
