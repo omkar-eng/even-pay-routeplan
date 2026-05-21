@@ -1970,6 +1970,9 @@ function UsersTab(){
   const[newUser,setNewUser]=useState({name:'',email:'',password:'',role:'rm',tl:'',city:'Pune'});
   const[status,setStatus]=useState('');
   const[userSearch,setUserSearch]=useState('');
+  const[bulkBusy,setBulkBusy]=useState(false);
+  const[bulkLog,setBulkLog]=useState([]);
+  const[showBulkLog,setShowBulkLog]=useState(false);
 
   const tls=ZONE.tls.map(t=>t.name);
   const rmNames=ALL_RMS.map(r=>r.rm).sort();
@@ -2034,6 +2037,47 @@ function UsersTab(){
     setStatus('✅ Access removed');setTimeout(()=>setStatus(''),3000);
   };
 
+  const BULK_PASSWORD='Even@1234';
+  const bulkCreate=async()=>{
+    if(!window.confirm(`Create accounts for all TLs and RMs?\n\nEmail: firstname@even.in\nPassword: ${BULK_PASSWORD}\n\nExisting accounts will be skipped.`))return;
+    setBulkBusy(true);setShowBulkLog(true);
+    const log=[];
+    const addLog=(name,email,status,msg)=>{log.push({name,email,status,msg});setBulkLog([...log]);};
+    const existingEmails=new Set(users.map(u=>u.email?.toLowerCase()));
+    const usedEmails=new Set();
+    const toCreate=[];
+    for(const tl of ZONE.tls){
+      const fn=tl.name.trim().split(/\s+/)[0].toLowerCase();
+      toCreate.push({name:tl.name,email:`${fn}@even.in`,role:'tl',tl:tl.name,city:'Pune'});
+    }
+    for(const rm of ALL_RMS){
+      const fn=rm.rm.trim().split(/\s+/)[0].toLowerCase();
+      toCreate.push({name:rm.rm,email:`${fn}@even.in`,role:'rm',tl:rm.tl,city:rm.city||'Pune'});
+    }
+    for(const p of toCreate){
+      const emailLo=p.email.toLowerCase();
+      if(existingEmails.has(emailLo)){addLog(p.name,p.email,'skip','Already has account');continue;}
+      if(usedEmails.has(emailLo)){addLog(p.name,p.email,'skip','Email conflict — create manually with full name');continue;}
+      usedEmails.add(emailLo);
+      try{
+        const secondary=firebase.initializeApp(firebaseConfig,'_bulk_'+Date.now());
+        const secAuth=secondary.auth();
+        const cred=await secAuth.createUserWithEmailAndPassword(p.email,BULK_PASSWORD);
+        const uid=cred.user.uid;
+        const userData={name:p.name,email:emailLo,role:p.role,tl:p.tl,city:p.city,createdAt:new Date().toISOString()};
+        await db.collection('users').doc(uid).set(userData);
+        await secAuth.signOut();await secondary.delete();
+        setUsers(prev=>[...prev,{id:uid,...userData}]);
+        existingEmails.add(emailLo);
+        addLog(p.name,p.email,'ok','Created');
+      }catch(e){
+        if(e.code==='auth/email-already-in-use'){existingEmails.add(emailLo);addLog(p.name,p.email,'skip','Already has account');}
+        else addLog(p.name,p.email,'err',e.message);
+      }
+    }
+    setBulkBusy(false);
+  };
+
   const inp=(val,set,ph,type='text')=><input value={val} onChange={e=>set(e.target.value)} placeholder={ph} type={type}
     style={{width:'100%',padding:'9px 12px',border:`1.5px solid ${B.line}`,borderRadius:10,fontSize:13,outline:'none',boxSizing:'border-box'}}
     onFocus={e=>e.target.style.borderColor=B.brand} onBlur={e=>e.target.style.borderColor=B.line}/>;
@@ -2056,6 +2100,10 @@ function UsersTab(){
         </div>
         <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
           {status&&<span style={{fontSize:13,color:status.includes('✅')?B.green:status.includes('❌')?B.red:B.muted,fontWeight:600,maxWidth:300}}>{status}</span>}
+          <button onClick={bulkCreate} disabled={bulkBusy}
+            style={{padding:'9px 18px',background:bulkBusy?B.muted:B.green,color:'#fff',border:'none',borderRadius:10,fontSize:13,fontWeight:700,cursor:'pointer',whiteSpace:'nowrap'}}>
+            {bulkBusy?'Creating…':'⚡ Bulk Create All'}
+          </button>
           <button onClick={()=>setShowAdd(!showAdd)}
             style={{padding:'9px 18px',background:B.brand,color:'#fff',border:'none',borderRadius:10,fontSize:13,fontWeight:700,cursor:'pointer'}}>
             + Add Team Member
@@ -2064,6 +2112,32 @@ function UsersTab(){
       </div>
 
       {/* Add user form */}
+      {showBulkLog&&bulkLog.length>0&&<Card style={{marginBottom:16,borderLeft:`4px solid ${B.green}`}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10}}>
+          <div style={{fontWeight:700,fontSize:14,color:B.ink}}>
+            Bulk Create Results&nbsp;
+            <span style={{color:B.green}}>{bulkLog.filter(l=>l.status==='ok').length} created</span>
+            {bulkLog.filter(l=>l.status==='skip').length>0&&<span style={{color:B.muted}}> · {bulkLog.filter(l=>l.status==='skip').length} skipped</span>}
+            {bulkLog.filter(l=>l.status==='err').length>0&&<span style={{color:B.red}}> · {bulkLog.filter(l=>l.status==='err').length} failed</span>}
+            {bulkBusy&&<span style={{color:B.amber}}> · creating…</span>}
+          </div>
+          {!bulkBusy&&<button onClick={()=>setShowBulkLog(false)} style={{background:'none',border:'none',cursor:'pointer',color:B.muted,fontSize:18}}>×</button>}
+        </div>
+        <div style={{maxHeight:220,overflowY:'auto',fontSize:12}}>
+          {bulkLog.map((l,i)=>(
+            <div key={i} style={{display:'flex',gap:8,alignItems:'center',padding:'4px 0',borderBottom:`1px solid ${B.line}`}}>
+              <span style={{fontSize:14}}>{l.status==='ok'?'✅':l.status==='skip'?'⏭️':'❌'}</span>
+              <span style={{fontWeight:600,minWidth:160,color:B.ink}}>{l.name}</span>
+              <span style={{color:B.muted,minWidth:180}}>{l.email}</span>
+              <span style={{color:l.status==='ok'?B.green:l.status==='err'?B.red:B.muted}}>{l.msg}</span>
+            </div>
+          ))}
+        </div>
+        {!bulkBusy&&<div style={{marginTop:10,padding:'10px 12px',background:'#f0fdf4',borderRadius:10,fontSize:12,color:'#166534'}}>
+          Password for all new accounts: <strong>{BULK_PASSWORD}</strong> — share this with each person and ask them to change it after first login.
+        </div>}
+      </Card>}
+
       {showAdd&&<Card style={{marginBottom:16,borderLeft:`4px solid ${B.brand}`}}>
         <div style={{fontWeight:700,fontSize:14,color:B.brand,marginBottom:14}}>Add New Team Member</div>
         <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(180px,1fr))',gap:10,marginBottom:14}}>
