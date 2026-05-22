@@ -51,7 +51,7 @@ const db=firebase.firestore();
 const ROLE_MAP={'omkar@even.in':{role:'admin',name:'Admin (Omkar)',city:'Pune'}};
 
 // ── DATA LAYER ─────────────────────────────────────────────────────────────
-let _cache={targets:{},tl_targets:{},admin_state:null,tl_notes:{},route_settings:{},live_leads:{},clinic_statuses:{},route_assignments:{},tl_achieved:{},sync_settings:{},payment_rows:[],monthly_reset:{},loaded:false};
+let _cache={targets:{},tl_targets:{},admin_state:null,tl_notes:{},route_settings:{},live_leads:{},clinic_statuses:{},route_assignments:{},tl_achieved:{},sync_settings:{},payment_rows:[],monthly_reset:{},route_plan_data:{live_status:[],needs_action:[],new_onboarded:[],lastFetched:null},loaded:false};
 let _autoSyncTimer=null;
 const safeKey=k=>k.replace(/[^a-zA-Z0-9_-]/g,'_');
 const clinicKey=(rm,clinic)=>safeKey(`${rm}__${clinic}`);
@@ -195,6 +195,24 @@ async function syncLeadsFromSheet(sheetUrl){
   return liveLeads;
 }
 
+async function fetchRoutePlanData(url){
+  const resp=await fetch(url+'?_='+Date.now(),{cache:'no-store'});
+  if(!resp.ok)throw new Error('HTTP '+resp.status);
+  const json=await resp.json();
+  if(json.status!=='ok')throw new Error(json.message||'Script error');
+  const data={
+    live_status:json.live_status||[],
+    needs_action:json.needs_action||[],
+    new_onboarded:json.new_onboarded||[],
+    lastFetched:new Date().toISOString()
+  };
+  _cache.route_plan_data=data;
+  await db.collection('config').doc('route_plan_data').set(data).catch(()=>{});
+  await saveRouteSettings({routePlanScriptUrl:url,routePlanLastFetched:data.lastFetched});
+  window.dispatchEvent(new Event('routePlanUpdated'));
+  return data;
+}
+
 async function updateClinicStatus(rmName,clinicName,newStatus,oldStatus){
   const key=clinicKey(rmName,clinicName);
   _cache.clinic_statuses[key]=newStatus;
@@ -218,6 +236,7 @@ async function initFirestore(){
       if(d.id==='sync_settings')_cache.sync_settings=d.data()||{};
       if(d.id==='payment_rows')_cache.payment_rows=d.data()?.rows||[];
       if(d.id==='monthly_reset')_cache.monthly_reset=d.data()||{};
+      if(d.id==='route_plan_data'){const rpd=d.data()||{};_cache.route_plan_data={live_status:[],needs_action:[],new_onboarded:[],lastFetched:null,...rpd};}
     });
   }catch(e){console.warn('Firestore:',e);}
   await loadClinicNotes();
@@ -1367,39 +1386,245 @@ function TLView({user,onLogout}){
   </>;
 }
 
+// ── TABLE HEADER / CELL helpers (outside component to avoid remount) ─────────
+const RPTh=({children,right})=>(
+  <th style={{padding:'10px 14px',textAlign:right?'right':'left',fontSize:10,fontWeight:700,color:B.muted,textTransform:'uppercase',letterSpacing:'.5px',whiteSpace:'nowrap',background:'#FAFAFA',borderBottom:`1px solid ${B.line}`}}>{children}</th>
+);
+const RPTd=({children,right,muted,bold,color})=>(
+  <td style={{padding:'11px 14px',borderBottom:`1px solid ${B.line}`,textAlign:right?'right':'left',color:color||(muted?B.muted:B.ink),fontWeight:bold?700:400,fontSize:12,whiteSpace:'nowrap',verticalAlign:'middle'}}>{children==null||children===''?'—':children}</td>
+);
+
 // ── ROUTE PLAN ─────────────────────────────────────────────────────────────
 function RoutePlanPanel({user}){
   const isMobile=useIsMobile();
+  const[tab,setTab]=useState('live');
   const[cityF,setCityF]=useState('All');
-  const[tlF,setTlF]=useState('All');
+  const[rmF,setRmF]=useState('All');
+  const[camF,setCamF]=useState('All');
   const[search,setSearch]=useState('');
-  const[notes,setNotes]=useState({..._clinicNotes});
-  const[editingNote,setEditingNote]=useState(null);
-  const[statuses,setStatuses]=useState({...(_cache.clinic_statuses||{})});
-  const[liveLeads,setLiveLeads]=useState({...(_cache.live_leads||{})});
   const[syncing,setSyncing]=useState(false);
   const[syncMsg,setSyncMsg]=useState('');
-  const[assignments,setAssignments]=useState(_cache.route_assignments||{overrides:{},added:{}});
-  const[editingSlot,setEditingSlot]=useState(null);
-  const[addingTo,setAddingTo]=useState(null);
-  const[newClinic,setNewClinic]=useState({name:'',locality:'',slot:'',freq:'Daily',status:'Stable',reason:'',leads:0});
+  const[data,setData]=useState(()=>({...(_cache.route_plan_data||{live_status:[],needs_action:[],new_onboarded:[],lastFetched:null})}));
 
-  const isTL=user&&user.role==='tl';
-  const canEdit=user&&(user.role==='tl'||user.role==='admin'||user.role==='zonal');
+  useEffect(()=>{
+    const h=()=>setData({...(_cache.route_plan_data||{live_status:[],needs_action:[],new_onboarded:[]})});
+    window.addEventListener('routePlanUpdated',h);
+    return()=>window.removeEventListener('routePlanUpdated',h);
+  },[]);
 
-  useEffect(()=>{if(isTL&&user.name)setTlF(user.name);},[isTL]);
-
-  const tls=['All',...new Set(ALL_RMS.map(r=>r.tl))];
-  const FREQ_OPTS=['Daily','Tri-weekly','Bi-weekly','Weekly'];
-
-  const getLeads=(rmName,clinicName)=>{const v=liveLeads[clinicKey(rmName,clinicName)];return v!==undefined?v:null;};
-  const getStatus=(rmName,clinicName,fallback)=>statuses[clinicKey(rmName,clinicName)]||fallback;
-
-  const saveAssignments=async(a)=>{
-    setAssignments(a);_cache.route_assignments=a;
-    await db.collection('config').doc('route_assignments').set(a).catch(()=>{});
+  const handleSync=async()=>{
+    const url=_cache.route_settings?.routePlanScriptUrl;
+    if(!url){setSyncMsg('No Apps Script URL configured. Admin must set it in Admin → Route Sync → Clinic Health URL.');return;}
+    setSyncing(true);setSyncMsg('');
+    try{
+      const result=await fetchRoutePlanData(url);
+      setData({...result});
+      setSyncMsg(`Synced — ${result.live_status.length} live, ${result.needs_action.length} needs action, ${result.new_onboarded.length} new`);
+    }catch(e){setSyncMsg('Sync failed — check the Apps Script URL');}
+    setSyncing(false);
+    setTimeout(()=>setSyncMsg(''),8000);
   };
-  const getEffectiveClinics=(r)=>{
+
+  const liveData=data.live_status||[];
+  const actionData=data.needs_action||[];
+  const newData=data.new_onboarded||[];
+  const noData=!liveData.length&&!actionData.length&&!newData.length;
+
+  const allRows=[...liveData,...actionData,...newData];
+  const uniq=(arr)=>['All',...new Set(arr.filter(Boolean))];
+  const cities=uniq(allRows.map(r=>r.City||r.city));
+  const rms=uniq(allRows.map(r=>r.RM||r.rm));
+  const cams=uniq(allRows.map(r=>r.CAM||r.cam));
+
+  const applyF=(rows)=>rows.filter(r=>{
+    const city=r.City||r.city||'';const rm=r.RM||r.rm||'';const cam=r.CAM||r.cam||'';
+    const clinic=r.Clinic||r.clinic||'';
+    if(cityF!=='All'&&city!==cityF)return false;
+    if(rmF!=='All'&&rm!==rmF)return false;
+    if(camF!=='All'&&cam!==camF)return false;
+    if(search&&!clinic.toLowerCase().includes(search.toLowerCase())&&!rm.toLowerCase().includes(search.toLowerCase()))return false;
+    return true;
+  });
+  const filtLive=applyF(liveData);
+  const filtAction=applyF(actionData);
+  const filtNew=applyF(newData);
+
+  const liveStatusStyle=(s='')=>{
+    const u=s.toUpperCase();
+    if(u.includes('BELOW'))return{bg:B.redBg,c:B.red,label:'BELOW TARGET'};
+    if(u.includes('RAMPING'))return{bg:B.amberBg,c:B.amber,label:'RAMPING'};
+    if(u.includes('LIVE'))return{bg:B.greenBg,c:B.green,label:'LIVE'};
+    return{bg:'#F1F5F9',c:B.muted,label:s||'—'};
+  };
+  const trendStyle=(t='')=>{
+    if(t==='Improving')return{c:B.green,prefix:'↑ '};
+    if(t==='Declining')return{c:B.red,prefix:'↓ '};
+    if(t==='New')return{c:B.blue2,prefix:'★ '};
+    return{c:B.muted,prefix:''};
+  };
+  const dormancyStyle=(d='')=>{
+    if(d==='Active')return{bg:B.greenBg,c:B.green};
+    if((d||'').includes('7-14'))return{bg:B.amberBg,c:B.amber};
+    if((d||'').includes('14+'))return{bg:B.redBg,c:B.red};
+    return{bg:'#F1F5F9',c:B.muted};
+  };
+
+  const Badge=({label,bg,c})=>(
+    <span style={{background:bg,color:c,padding:'3px 9px',borderRadius:6,fontSize:10,fontWeight:700,textTransform:'uppercase',letterSpacing:'.4px',whiteSpace:'nowrap'}}>{label||'—'}</span>
+  );
+
+  const lastFetch=data.lastFetched;
+  const lastFetchStr=lastFetch?new Date(lastFetch).toLocaleString('en-IN',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}):'Never synced';
+
+  const tabs=[['live',`Live Clinics (${liveData.length})`],['action',`Needs Action (${actionData.length})`],['new',`New Onboarded (${newData.length})`]];
+
+  return(
+    <div style={{background:'#F8F9FB',minHeight:'100vh',paddingBottom:isMobile?80:20}}>
+      <div style={{background:B.white,borderBottom:`1px solid ${B.line}`,padding:'20px 20px 0'}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:12,marginBottom:12,flexWrap:'wrap'}}>
+          <div>
+            <div style={{fontSize:22,fontWeight:800,color:B.ink,letterSpacing:'-.3px'}}>Clinic Health</div>
+            <div style={{fontSize:12,color:B.muted,marginTop:2}}>Last synced: {lastFetchStr}</div>
+          </div>
+          <button onClick={handleSync} disabled={syncing}
+            style={{background:syncing?B.line:B.brand,border:'none',color:'#fff',borderRadius:8,padding:'8px 18px',fontSize:12,fontWeight:700,cursor:syncing?'default':'pointer',alignSelf:'center'}}>
+            {syncing?'Syncing…':'↻ Sync'}
+          </button>
+        </div>
+        {syncMsg&&<div style={{fontSize:12,color:syncMsg.includes('failed')?B.red:B.green,fontWeight:600,marginBottom:10,paddingBottom:4}}>{syncMsg}</div>}
+        {!noData&&(
+          <div style={{display:'flex',gap:8,flexWrap:'wrap',marginBottom:12}}>
+            {[
+              {label:'Live',count:liveData.filter(r=>liveStatusStyle(r.Status).label==='LIVE').length,c:B.green,bg:B.greenBg},
+              {label:'Ramping',count:liveData.filter(r=>liveStatusStyle(r.Status).label==='RAMPING').length,c:B.amber,bg:B.amberBg},
+              {label:'Below Target',count:liveData.filter(r=>liveStatusStyle(r.Status).label==='BELOW TARGET').length,c:B.red,bg:B.redBg},
+              {label:'Needs Action',count:actionData.length,c:B.amber,bg:B.amberBg},
+              {label:'New',count:newData.length,c:B.blue2,bg:B.blueBg},
+            ].map(({label,count,c,bg})=>(
+              <span key={label} style={{background:bg,color:c,padding:'4px 12px',borderRadius:20,fontSize:11,fontWeight:700}}>{count} {label}</span>
+            ))}
+          </div>
+        )}
+        <div style={{display:'flex',gap:0,borderBottom:'none',overflowX:'auto'}}>
+          {tabs.map(([id,lbl])=>(
+            <button key={id} onClick={()=>setTab(id)}
+              style={{padding:'10px 18px',border:'none',background:'none',fontSize:12,fontWeight:tab===id?700:500,
+              color:tab===id?B.brand:B.muted,borderBottom:tab===id?`2.5px solid ${B.brand}`:'2.5px solid transparent',
+              cursor:'pointer',borderRadius:0,whiteSpace:'nowrap',flexShrink:0}}>
+              {lbl}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div style={{background:B.white,borderBottom:`1px solid ${B.line}`,padding:'12px 20px',display:'flex',gap:8,flexWrap:'wrap'}}>
+        <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search clinic or RM..."
+          style={{flex:1,minWidth:160,padding:'7px 12px',border:`1.5px solid ${B.line}`,borderRadius:8,fontSize:12,outline:'none'}}/>
+        {[['City',cities,cityF,setCityF],['RM',rms,rmF,setRmF],['CAM',cams,camF,setCamF]].map(([l,opts,v,s])=>(
+          <select key={l} value={v} onChange={e=>s(e.target.value)}
+            style={{padding:'7px 10px',border:`1.5px solid ${B.line}`,borderRadius:8,fontSize:12,fontWeight:500,background:B.white,outline:'none',cursor:'pointer',minWidth:80}}>
+            <option value="All">{l}: All</option>
+            {opts.filter(o=>o!=='All').map(o=><option key={o}>{o}</option>)}
+          </select>
+        ))}
+      </div>
+
+      {noData?(
+        <div style={{textAlign:'center',padding:'72px 24px',color:B.muted}}>
+          <div style={{fontSize:14,fontWeight:700,color:B.ink,marginBottom:8}}>No clinic data loaded</div>
+          <div style={{fontSize:12,lineHeight:1.8}}>
+            Admin must configure the Apps Script URL in<br/>
+            <strong style={{color:B.ink}}>Admin → Route Sync → Clinic Health URL</strong><br/>
+            then click Sync.
+          </div>
+        </div>
+      ):(
+        <div style={{padding:'16px 20px'}}>
+          {tab==='live'&&(
+            <div className="tbl-wrap">
+              <table className="dt">
+                <thead><tr>
+                  <RPTh>Status</RPTh><RPTh>Clinic</RPTh><RPTh>RM</RPTh><RPTh>CAM</RPTh><RPTh>City</RPTh>
+                  <RPTh right>Avg/Day</RPTh><RPTh right>GL%</RPTh><RPTh>Trend</RPTh><RPTh right>Weeks</RPTh><RPTh right>Total Leads</RPTh>
+                </tr></thead>
+                <tbody>
+                  {filtLive.length===0?<tr><td colSpan={10} style={{padding:'28px',textAlign:'center',color:B.muted,fontSize:13}}>No clinics match the current filters</td></tr>
+                  :filtLive.map((r,i)=>{const ss=liveStatusStyle(r.Status||'');const ts=trendStyle(r.Trend||'');return(
+                    <tr key={i} style={{background:'#fff'}}>
+                      <RPTd><Badge label={ss.label} bg={ss.bg} c={ss.c}/></RPTd>
+                      <RPTd bold>{r.Clinic}</RPTd>
+                      <RPTd>{r.RM}</RPTd>
+                      <RPTd>{r.CAM}</RPTd>
+                      <RPTd muted>{r.City}</RPTd>
+                      <RPTd right bold>{r['Avg leads/day']}</RPTd>
+                      <RPTd right>{r['GL%']}</RPTd>
+                      <RPTd><span style={{color:ts.c,fontWeight:600,fontSize:12}}>{ts.prefix}{r.Trend||'—'}</span></RPTd>
+                      <RPTd right>{r.Weeks}</RPTd>
+                      <RPTd right bold>{r['Total leads']}</RPTd>
+                    </tr>
+                  );})}
+                </tbody>
+              </table>
+            </div>
+          )}
+          {tab==='action'&&(
+            <div className="tbl-wrap">
+              <table className="dt">
+                <thead><tr>
+                  <RPTh>Dormancy</RPTh><RPTh>Clinic</RPTh><RPTh>RM</RPTh><RPTh>CAM</RPTh><RPTh>City</RPTh>
+                  <RPTh right>Lifetime Leads</RPTh><RPTh>Last Lead Date</RPTh><RPTh right>Days Since</RPTh>
+                </tr></thead>
+                <tbody>
+                  {filtAction.length===0?<tr><td colSpan={8} style={{padding:'28px',textAlign:'center',color:B.muted,fontSize:13}}>No clinics match the current filters</td></tr>
+                  :filtAction.map((r,i)=>{const ds=dormancyStyle(r.dormancy_status||'');const days=parseInt(r.days_since_last_lead)||0;return(
+                    <tr key={i} style={{background:'#fff'}}>
+                      <RPTd><Badge label={r.dormancy_status} bg={ds.bg} c={ds.c}/></RPTd>
+                      <RPTd bold>{r.clinic}</RPTd>
+                      <RPTd>{r.rm}</RPTd>
+                      <RPTd>{r.cam}</RPTd>
+                      <RPTd muted>{r.city}</RPTd>
+                      <RPTd right>{r.lifetime_leads}</RPTd>
+                      <RPTd>{r.last_lead_date}</RPTd>
+                      <RPTd right color={days>14?B.red:days>7?B.amber:B.muted}><strong>{r.days_since_last_lead}</strong></RPTd>
+                    </tr>
+                  );})}
+                </tbody>
+              </table>
+            </div>
+          )}
+          {tab==='new'&&(
+            <div className="tbl-wrap">
+              <table className="dt">
+                <thead><tr>
+                  <RPTh>Clinic</RPTh><RPTh>RM</RPTh><RPTh>CAM</RPTh><RPTh>City</RPTh>
+                  <RPTh>Go-live Date</RPTh><RPTh right>Days Live</RPTh><RPTh right>Total Leads</RPTh><RPTh right>Avg/Day</RPTh>
+                </tr></thead>
+                <tbody>
+                  {filtNew.length===0?<tr><td colSpan={8} style={{padding:'28px',textAlign:'center',color:B.muted,fontSize:13}}>No clinics match the current filters</td></tr>
+                  :filtNew.map((r,i)=>(
+                    <tr key={i} style={{background:'#fff'}}>
+                      <RPTd bold>{r.clinic}</RPTd>
+                      <RPTd>{r.rm}</RPTd>
+                      <RPTd>{r.cam}</RPTd>
+                      <RPTd muted>{r.city}</RPTd>
+                      <RPTd>{r['Go-live date']}</RPTd>
+                      <RPTd right bold>{r['Days since go-live']}</RPTd>
+                      <RPTd right>{r['Total leads']}</RPTd>
+                      <RPTd right>{r['Avg leads/day']}</RPTd>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── (old RM-assignment route plan removed — replaced by sheet-based Clinic Health view) ─────
+function _oldRoutePlan_DELETED(){const getEffectiveClinics=(r)=>{
     const ovs=assignments.overrides||{};
     const added=(assignments.added||{})[r.rm]||[];
     const base=r.clinics.filter(c=>!ovs[clinicKey(r.rm,c.name)]?.removed).map(c=>{const ov=ovs[clinicKey(r.rm,c.name)]||{};return{...c,...ov};});
@@ -2639,6 +2864,10 @@ function AdminPanel(){
   const[sheetUrl,setSheetUrl]=useState(_cache.route_settings?.sheetUrl||'');
   const[routeSyncing,setRouteSyncing]=useState(false);
   const[routeSyncMsg,setRouteSyncMsg]=useState('');
+  // ── Clinic Health (Route Plan) Apps Script state ──
+  const[routePlanScriptUrl,setRoutePlanScriptUrl]=useState(_cache.route_settings?.routePlanScriptUrl||'');
+  const[routePlanSyncing,setRoutePlanSyncing]=useState(false);
+  const[routePlanMsg,setRoutePlanMsg]=useState('');
   // ── Auto-sync state ──
   const[autoSyncEnabled,setAutoSyncEnabled]=useState(!!_cache.sync_settings?.enabled);
   const[syncIntervalMin,setSyncIntervalMin]=useState(_cache.sync_settings?.intervalMin||30);
@@ -2686,6 +2915,24 @@ function AdminPanel(){
     const doc={...(_cache.targets[key]||{}),tl,rm,...patch,updatedAt:new Date().toISOString()};
     await db.collection('targets').doc(key).set(doc);
     _cache.targets[key]=doc;
+  };
+
+  // ── Clinic Health Apps Script actions ──
+  const handleSaveRoutePlanUrl=async()=>{
+    if(!routePlanScriptUrl.trim()){setRoutePlanMsg('Paste the Apps Script URL first');return;}
+    await saveRouteSettings({routePlanScriptUrl:routePlanScriptUrl.trim()});
+    setRoutePlanMsg('URL saved');
+    setTimeout(()=>setRoutePlanMsg(''),3000);
+  };
+  const handleSyncRoutePlanNow=async()=>{
+    if(!routePlanScriptUrl.trim()){setRoutePlanMsg('Save the script URL first');return;}
+    setRoutePlanSyncing(true);setRoutePlanMsg('');
+    try{
+      const result=await fetchRoutePlanData(routePlanScriptUrl.trim());
+      setRoutePlanMsg(`Synced — ${result.live_status.length} live, ${result.needs_action.length} needs action, ${result.new_onboarded.length} new`);
+    }catch(e){setRoutePlanMsg('Sync failed — check the Apps Script URL and deployment settings');}
+    setRoutePlanSyncing(false);
+    setTimeout(()=>setRoutePlanMsg(''),8000);
   };
 
   // ── Route Sync actions ──
@@ -3115,6 +3362,37 @@ function AdminPanel(){
             </div>
           </Card>
 
+          <Card style={{borderLeft:`4px solid ${B.brand}`,marginTop:0,marginBottom:16}}>
+            <div style={{fontWeight:700,fontSize:16,color:B.brand,marginBottom:4}}>Clinic Health — Apps Script URL</div>
+            <div style={{fontSize:12,color:B.muted,marginBottom:16}}>Connect the Route Plan page to your Google Sheet via Apps Script. Syncing pulls live clinic status, dormancy, and new onboarding data.</div>
+            <div style={{marginBottom:14}}>
+              <div style={{fontSize:11,color:B.muted,marginBottom:6,fontWeight:600,textTransform:'uppercase'}}>Apps Script Web App URL</div>
+              <input value={routePlanScriptUrl} onChange={e=>setRoutePlanScriptUrl(e.target.value)}
+                placeholder="https://script.google.com/macros/s/.../exec"
+                style={{width:'100%',padding:'10px 12px',border:`1.5px solid ${B.line}`,borderRadius:10,fontSize:13,outline:'none',boxSizing:'border-box'}}
+                onFocus={e=>e.target.style.borderColor=B.brand} onBlur={e=>e.target.style.borderColor=B.line}/>
+              <div style={{fontSize:11,color:B.muted,marginTop:6,lineHeight:1.6}}>
+                In Apps Script: <strong>Deploy → New deployment → Web app → Execute as Me → Anyone → Deploy</strong>. Copy the URL here.
+              </div>
+            </div>
+            <div style={{display:'flex',gap:10,alignItems:'center',flexWrap:'wrap'}}>
+              <button onClick={handleSaveRoutePlanUrl}
+                style={{padding:'10px 20px',background:B.navy,color:'#fff',border:'none',borderRadius:10,fontSize:13,fontWeight:700,cursor:'pointer'}}>
+                Save URL
+              </button>
+              <button onClick={handleSyncRoutePlanNow} disabled={routePlanSyncing}
+                style={{padding:'10px 20px',background:routePlanSyncing?B.muted:B.brand,color:'#fff',border:'none',borderRadius:10,fontSize:13,fontWeight:700,cursor:routePlanSyncing?'default':'pointer'}}>
+                {routePlanSyncing?'Syncing…':'↻ Sync Now'}
+              </button>
+              {routePlanMsg&&<span style={{fontSize:13,color:routePlanMsg.includes('failed')||routePlanMsg.includes('check')?B.red:B.green,fontWeight:600}}>{routePlanMsg}</span>}
+            </div>
+            {_cache.route_settings?.routePlanLastFetched&&(
+              <div style={{marginTop:12,fontSize:12,color:B.muted}}>
+                Last synced: {new Date(_cache.route_settings.routePlanLastFetched).toLocaleString('en-IN',{day:'numeric',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'})}
+              </div>
+            )}
+          </Card>
+
           <Card style={{borderLeft:'4px solid #1b5e20',marginTop:0}}>
             <div style={{fontWeight:700,fontSize:16,color:'#1b5e20',marginBottom:4}}>Google Sheets Sync</div>
             <div style={{fontSize:13,color:B.muted,marginBottom:0}}>Pull live targets and achievements from your Google Sheet. Updates all RM data for the current month.</div>
@@ -3276,7 +3554,7 @@ function App(){
     if(_autoSyncTimer){clearInterval(_autoSyncTimer);_autoSyncTimer=null;}
     if(_sheetPushUnsub){_sheetPushUnsub();_sheetPushUnsub=null;}
     await auth.signOut();setUser(null);
-    _cache={targets:{},tl_targets:{},admin_state:null,tl_notes:{},route_settings:{},live_leads:{},clinic_statuses:{},route_assignments:{},tl_achieved:{},sync_settings:{},loaded:false};
+    _cache={targets:{},tl_targets:{},admin_state:null,tl_notes:{},route_settings:{},live_leads:{},clinic_statuses:{},route_assignments:{},tl_achieved:{},sync_settings:{},payment_rows:[],monthly_reset:{},route_plan_data:{live_status:[],needs_action:[],new_onboarded:[],lastFetched:null},loaded:false};
   };
   if(loading)return <LoadingScreen message={initMsg}/>;
   if(!user)return <Login onLogin={handleLogin}/>;
