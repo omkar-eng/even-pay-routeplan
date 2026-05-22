@@ -366,6 +366,24 @@ function buildRMPayments(payByRM, targetRMNames){
       const lo=bestT.toLowerCase();
       rmPayments[lo]=(rmPayments[lo]||0)+amt;
       if(!rmDisplayName[lo]||k.length>rmDisplayName[lo].length)rmDisplayName[lo]=k;
+      claimed.add(k);
+    }
+  }
+  // Pass 3 — first-word prefix match (e.g. "Rupesh Pendum" → "Rupeshkumar Pendum")
+  for(const[k,amt]of Object.entries(payByRM)){
+    if(claimed.has(k))continue;
+    const kp=k.split(/\s+/);const kfw=kp[0];const klw=kp[kp.length-1];
+    let bestT=null,bestD=Infinity;
+    for(const t of targetRMNames){
+      const tp=t.toLowerCase().split(/\s+/);const tfw=tp[0];const tlw=tp[tp.length-1];
+      const prefixOk=kfw.startsWith(tfw)||tfw.startsWith(kfw);
+      const lastD=_editDist(klw,tlw);
+      if(prefixOk&&lastD<=1&&lastD<bestD){bestD=lastD;bestT=t;}
+    }
+    if(bestT){
+      const lo=bestT.toLowerCase();
+      rmPayments[lo]=(rmPayments[lo]||0)+amt;
+      if(!rmDisplayName[lo]||k.length>rmDisplayName[lo].length)rmDisplayName[lo]=k;
     }
   }
   return{rmPayments,rmDisplayName};
