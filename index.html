@@ -1713,86 +1713,85 @@ function RoutePlanPanel({user}){
                 const dailyCount=r.clinics.filter(c=>c.frequency==='Daily').length;
                 const biCount=r.clinics.filter(c=>c.frequency==='Bi-weekly').length;
                 return(
-                  <div key={r.rm} style={{background:B.white,borderRadius:12,border:`1px solid ${B.line}`,overflow:'hidden',boxShadow:'0 1px 4px rgba(0,0,0,.05)'}}>
+                  <div key={r.rm} style={{background:B.white,borderRadius:12,border:`1px solid ${B.line}`,overflow:'hidden',boxShadow:'0 1px 3px rgba(0,0,0,.04)'}}>
+
                     {/* Card header */}
-                    <div style={{padding:'16px 18px',borderBottom:`1px solid ${B.line}`,display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:10}}>
-                      <div style={{display:'flex',alignItems:'center',gap:12}}>
-                        <div style={{width:38,height:38,borderRadius:'50%',background:B.brand+'18',display:'flex',alignItems:'center',justifyContent:'center',fontWeight:800,fontSize:14,color:B.brand,flexShrink:0}}>
+                    <div style={{padding:'14px 18px',display:'flex',justifyContent:'space-between',alignItems:'center',gap:12}}>
+                      <div style={{display:'flex',alignItems:'center',gap:11}}>
+                        <div style={{width:36,height:36,borderRadius:'50%',background:B.brand+'15',display:'flex',alignItems:'center',justifyContent:'center',fontWeight:800,fontSize:13,color:B.brand,flexShrink:0,letterSpacing:'-.3px'}}>
                           {r.rm.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase()}
                         </div>
                         <div>
-                          <div style={{fontWeight:700,fontSize:14,color:B.ink}}>{r.rm}</div>
-                          <div style={{fontSize:11,color:B.muted,marginTop:1}}>{r.city||'—'}</div>
+                          <div style={{fontWeight:700,fontSize:14,color:B.ink,lineHeight:1.2}}>{r.rm}</div>
+                          <div style={{fontSize:11,color:B.muted,marginTop:3}}>
+                            {r.city&&<span>{r.city} · </span>}
+                            <span style={{color:B.red}}>{dailyCount} daily</span>
+                            <span style={{color:B.muted}}> · </span>
+                            <span style={{color:B.blue2}}>{biCount} bi-weekly</span>
+                          </div>
                         </div>
                       </div>
-                      <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
-                        <span style={{background:B.redBg,color:B.red,padding:'3px 10px',borderRadius:6,fontSize:11,fontWeight:700}}>{dailyCount} Daily</span>
-                        <span style={{background:B.blueBg,color:B.blue2,padding:'3px 10px',borderRadius:6,fontSize:11,fontWeight:700}}>{biCount} Bi-weekly</span>
-                        {todayVisits.length>0&&(
-                          <span style={{background:B.greenBg,color:B.green,padding:'3px 10px',borderRadius:6,fontSize:11,fontWeight:700}}>{todayVisits.length} today</span>
-                        )}
+                      <div style={{display:'flex',gap:6,alignItems:'center',flexShrink:0}}>
                         <button onClick={()=>shareWhatsApp(r)}
-                          style={{background:'#25D366',border:'none',color:'#fff',borderRadius:7,padding:'5px 12px',fontSize:11,fontWeight:700,cursor:'pointer',flexShrink:0}}>
+                          style={{background:'#25D366',border:'none',color:'#fff',borderRadius:7,padding:'6px 14px',fontSize:11,fontWeight:700,cursor:'pointer'}}>
                           Share
                         </button>
                         <button onClick={()=>setExpandedRM(isExpanded?null:r.rm)}
-                          style={{background:'none',border:`1.5px solid ${B.line}`,color:B.muted,borderRadius:7,padding:'5px 10px',fontSize:11,cursor:'pointer',flexShrink:0}}>
-                          {isExpanded?'Hide':'View all'}
+                          style={{background:'none',border:`1.5px solid ${B.line}`,color:isExpanded?B.ink:B.muted,borderRadius:7,padding:'6px 10px',fontSize:13,cursor:'pointer',lineHeight:1}}>
+                          {isExpanded?'↑':'↓'}
                         </button>
                       </div>
                     </div>
 
-                    {/* Today's visits highlight */}
-                    {todayVisits.length>0&&(
-                      <div style={{padding:'12px 18px',background:'#F0F7FF',borderBottom:`1px solid ${B.line}`}}>
-                        <div style={{fontSize:11,fontWeight:700,color:B.blue2,textTransform:'uppercase',letterSpacing:'.5px',marginBottom:8}}>Today — {todayName}</div>
-                        <div style={{display:'flex',flexDirection:'column',gap:6}}>
-                          {todayVisits.map((c,ci)=>{
-                            const ss=clinicStatusStyle(c);
-                            return(
-                              <div key={ci} style={{display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}}>
-                                <StatusDot c={c}/>
-                                <span style={{fontSize:13,fontWeight:600,color:B.ink,flex:1,minWidth:120}}>{c.name}</span>
-                                <FreqBadge freq={c.frequency}/>
-                                <span style={{background:ss.bg,color:ss.col,padding:'2px 8px',borderRadius:5,fontSize:10,fontWeight:700}}>{ss.label}</span>
-                                {c.gl>0&&<span style={{fontSize:11,color:c.gl>=20?B.green:B.red,fontWeight:600}}>GL {c.gl}%</span>}
-                                {c.trend&&c.trend!=='New'&&<span style={{fontSize:11,color:c.trend==='Declining'?B.red:c.trend==='Improving'?B.green:B.muted}}>
-                                  {c.trend==='Declining'?'↓':c.trend==='Improving'?'↑':''} {c.trend}
-                                </span>}
-                              </div>
-                            );
-                          })}
+                    {/* Today's visits */}
+                    <div style={{borderTop:`1px solid ${B.line}`}}>
+                      {todayVisits.length===0?(
+                        <div style={{padding:'10px 18px'}}>
+                          <span style={{fontSize:12,color:B.muted}}>No visits today ({todayName})</span>
                         </div>
-                      </div>
-                    )}
-                    {todayVisits.length===0&&(
-                      <div style={{padding:'10px 18px',background:'#FAFAFA',borderBottom:`1px solid ${B.line}`}}>
-                        <span style={{fontSize:12,color:B.muted}}>No visits scheduled for today ({todayName})</span>
-                      </div>
-                    )}
+                      ):(
+                        <div style={{padding:'10px 18px 12px'}}>
+                          <div style={{fontSize:10,fontWeight:700,color:B.muted,textTransform:'uppercase',letterSpacing:'.6px',marginBottom:8}}>Today · {todayName}</div>
+                          <div style={{display:'flex',flexDirection:'column',gap:7}}>
+                            {todayVisits.map((c,ci)=>{
+                              const ss=clinicStatusStyle(c);
+                              const meta=[];
+                              if(c.gl>0)meta.push({label:`GL ${c.gl}%`,color:c.gl>=20?B.green:B.red});
+                              if(c.trend&&c.trend!=='New')meta.push({label:(c.trend==='Declining'?'↓ ':c.trend==='Improving'?'↑ ':'')+c.trend,color:c.trend==='Declining'?B.red:c.trend==='Improving'?B.green:B.muted});
+                              return(
+                                <div key={ci} style={{display:'flex',alignItems:'center',gap:8}}>
+                                  <StatusDot c={c}/>
+                                  <span style={{fontSize:13,fontWeight:600,color:B.ink,flex:1}}>{c.name}</span>
+                                  <span style={{background:ss.bg,color:ss.col,padding:'2px 8px',borderRadius:5,fontSize:10,fontWeight:700,whiteSpace:'nowrap'}}>{ss.label}</span>
+                                  {meta.map((m,mi)=><span key={mi} style={{fontSize:11,color:m.color,fontWeight:600,whiteSpace:'nowrap'}}>{m.label}</span>)}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+                    </div>
 
                     {/* Full clinic list (expandable) */}
                     {isExpanded&&(
-                      <div style={{padding:'0 0 4px'}}>
-                        <div style={{fontSize:11,fontWeight:700,color:B.muted,textTransform:'uppercase',letterSpacing:'.5px',padding:'12px 18px 6px'}}>All Clinics</div>
+                      <div style={{borderTop:`1px solid ${B.line}`}}>
+                        <div style={{fontSize:10,fontWeight:700,color:B.muted,textTransform:'uppercase',letterSpacing:'.6px',padding:'10px 18px 6px'}}>All Clinics · {r.clinics.length}</div>
                         {r.clinics.map((c,ci)=>{
                           const ss=clinicStatusStyle(c);
-                          const visitDayLabels=(c.visitDays||[]).map(d=>RP_DAY_NAMES[d]).join(', ');
+                          const visitDayLabels=(c.visitDays||[]).map(d=>RP_DAY_NAMES[d]).join(' · ');
                           const isToday=isVisitToday(c);
                           return(
                             <div key={ci} style={{
-                              padding:'10px 18px',
-                              borderBottom:ci<r.clinics.length-1?`1px solid ${B.line}`:'none',
+                              padding:'9px 18px',
+                              borderTop:`1px solid ${B.line}`,
                               background:isToday?'#F8FBFF':'transparent',
-                              display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'
+                              display:'flex',alignItems:'center',gap:8
                             }}>
                               <StatusDot c={c}/>
-                              <span style={{fontSize:12,fontWeight:isToday?700:500,color:B.ink,flex:1,minWidth:120}}>{c.name}</span>
+                              <span style={{fontSize:12,fontWeight:isToday?600:400,color:isToday?B.ink:B.muted2||'#555',flex:1}}>{c.name}</span>
+                              <span style={{background:ss.bg,color:ss.col,padding:'2px 7px',borderRadius:5,fontSize:10,fontWeight:700,whiteSpace:'nowrap'}}>{ss.label}</span>
                               <FreqBadge freq={c.frequency}/>
-                              <span style={{background:ss.bg,color:ss.col,padding:'2px 7px',borderRadius:5,fontSize:10,fontWeight:700}}>{ss.label}</span>
-                              {c.gl>0&&<span style={{fontSize:11,color:c.gl>=20?B.green:B.red,fontWeight:600}}>GL {c.gl}%</span>}
-                              <span style={{fontSize:11,color:B.muted,marginLeft:'auto'}}>{visitDayLabels}</span>
-                              {isToday&&<span style={{fontSize:10,background:B.brand,color:'#fff',padding:'1px 7px',borderRadius:4,fontWeight:700}}>TODAY</span>}
+                              <span style={{fontSize:11,color:B.muted,minWidth:70,textAlign:'right'}}>{visitDayLabels}</span>
                             </div>
                           );
                         })}
