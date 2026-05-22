@@ -230,26 +230,33 @@ async function initFirestore(){
 async function checkAndResetMonthlyTargets(){
   const monthKey=new Date().toISOString().slice(0,7); // "YYYY-MM"
   if((_cache.monthly_reset||{}).month===monthKey)return false; // already reset this month
+  // ── Archive outgoing month before zeroing ──
+  const prevMonthKey=_cache.monthly_reset?.month; // last recorded month
+  if(prevMonthKey){
+    const archiveData={
+      month:prevMonthKey,
+      archivedAt:new Date().toISOString(),
+      targets:{..._cache.targets},
+      tl_targets:{..._cache.tl_targets},
+    };
+    db.collection('history').doc(prevMonthKey).set(archiveData).catch(()=>{});
+  }
+  // ── Zero out live targets ──
   const resetFields={target:0,refund:0,monthlyLeads:0,dailyLeads:0,renewalTarget:0,
     netAchieved:0,monthlyAchieved:0,dailyAchieved:0,renewalAchieved:0};
-  // Reset in-memory RM targets
   Object.keys(_cache.targets).forEach(k=>{_cache.targets[k]={..._cache.targets[k],...resetFields};});
-  // Reset in-memory TL targets
   const tlReset={};
   Object.entries(_cache.tl_targets||{}).forEach(([k,v])=>{tlReset[k]={...v,...resetFields};});
   _cache.tl_targets=tlReset;
-  // Clear payment rows for the new month
-  _cache.payment_rows=[];
+  // Payment rows are NOT cleared — they carry dates and the date filter separates months
   const resetMeta={month:monthKey,resetAt:new Date().toISOString()};
   _cache.monthly_reset=resetMeta;
-  // Persist to Firestore
   const rmWrites=Object.keys(_cache.targets).map(k=>
     db.collection('targets').doc(k).update(resetFields).catch(()=>{})
   );
   await Promise.all([
     ...rmWrites,
     db.collection('config').doc('tl_targets').set(tlReset).catch(()=>{}),
-    db.collection('config').doc('payment_rows').set({rows:[]}).catch(()=>{}),
     db.collection('config').doc('monthly_reset').set(resetMeta).catch(()=>{}),
   ]);
   applyStoreToRMs();
