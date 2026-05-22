@@ -1497,6 +1497,7 @@ function RoutePlanPanel({user}){
   const[data,setData]=useState(()=>({...(_cache.route_plan_data||{live_status:[],needs_action:[],new_onboarded:[],disabled:[],lastFetched:null})}));
   const[expandedRM,setExpandedRM]=useState(null);
   const[notifSentToday,setNotifSentToday]=useState(false);
+  const[previewAs,setPreviewAs]=useState('');
 
   const isAdmin=user.role==='admin'||user.role==='tl';
 
@@ -1561,9 +1562,10 @@ function RoutePlanPanel({user}){
 
   // Build RM plan
   const allRMPlan=buildRMPlan(data);
-  const rmPlan=isAdmin
-    ?(cityF==='All'?allRMPlan:allRMPlan.map(r=>({...r,clinics:r.clinics.filter(c=>c.city===cityF)})).filter(r=>r.clinics.length))
-    :allRMPlan.filter(r=>r.rm.toLowerCase()===user.name.toLowerCase());
+  const effectiveName=isAdmin&&previewAs?previewAs:(!isAdmin?user.name:'');
+  const rmPlan=effectiveName
+    ?allRMPlan.filter(r=>r.rm.toLowerCase()===effectiveName.toLowerCase())
+    :(cityF==='All'?allRMPlan:allRMPlan.map(r=>({...r,clinics:r.clinics.filter(c=>c.city===cityF)})).filter(r=>r.clinics.length));
 
   const allCities=['All',...new Set([...liveData,...actionData,...newData].map(r=>r.City||r.city).filter(Boolean))];
 
@@ -1690,11 +1692,24 @@ function RoutePlanPanel({user}){
               <span style={{fontSize:12,fontWeight:700,color:B.brand}}>{todayName}</span>
               <span style={{fontSize:11,color:B.muted}}>{new Date().toLocaleDateString('en-IN',{day:'numeric',month:'short'})}</span>
             </div>
-            {isAdmin&&(
+            {isAdmin&&!previewAs&&(
               <select value={cityF} onChange={e=>setCityF(e.target.value)}
                 style={{padding:'7px 10px',border:`1.5px solid ${B.line}`,borderRadius:8,fontSize:12,background:B.white,outline:'none',cursor:'pointer'}}>
                 {allCities.map(c=><option key={c}>{c==='All'?'City: All':c}</option>)}
               </select>
+            )}
+            {isAdmin&&(
+              <select value={previewAs} onChange={e=>{setPreviewAs(e.target.value);setExpandedRM(null);}}
+                style={{padding:'7px 10px',border:`1.5px solid ${previewAs?B.brand:B.line}`,borderRadius:8,fontSize:12,background:previewAs?B.brand+'10':B.white,outline:'none',cursor:'pointer',fontWeight:previewAs?700:400,color:previewAs?B.brand:B.ink}}>
+                <option value=''>View as: Admin</option>
+                {allRMPlan.map(r=><option key={r.rm} value={r.rm}>{r.rm}{r.city?' ('+r.city+')':''}</option>)}
+              </select>
+            )}
+            {isAdmin&&previewAs&&(
+              <button onClick={()=>{setPreviewAs('');setExpandedRM(null);}}
+                style={{background:B.redBg,border:'none',color:B.red,borderRadius:8,padding:'7px 12px',fontSize:12,fontWeight:700,cursor:'pointer'}}>
+                Exit preview
+              </button>
             )}
           </div>
 
