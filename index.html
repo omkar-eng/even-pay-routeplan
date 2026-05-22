@@ -851,6 +851,9 @@ function DesktopSideNav({screen,setScreen,user,onLogout,previewUser,setPreviewUs
   const tlNames=[...new Set(ALL_RMS.map(r=>r.tl).filter(Boolean))];
   const tlOptions=tlNames.map(n=>({name:n,role:'tl',city:''}));
   const allOptions=[...tlOptions,...rmOptions];
+  const[ddOpen,setDdOpen]=useState(false);
+  const selectedLabel=previewUser?previewUser.name:'— Admin view —';
+  const choose=(opt)=>{setPreviewUser(opt||null);setDdOpen(false);};
   return <div style={{width:220,background:B.navy,height:'100vh',display:'flex',flexDirection:'column',flexShrink:0,overflowY:'auto'}}>
     <div style={{padding:'24px 20px 20px'}}>
       <img src="even-logo.svg" alt="even" style={{height:26,display:'block',marginBottom:6}}/>
@@ -864,16 +867,35 @@ function DesktopSideNav({screen,setScreen,user,onLogout,previewUser,setPreviewUs
         </button>
       ))}
     </div>
-    {setPreviewUser&&<div style={{padding:'12px 16px',borderTop:'1px solid rgba(255,255,255,.08)'}}>
+    {setPreviewUser&&<div style={{padding:'12px 16px',borderTop:'1px solid rgba(255,255,255,.08)',position:'relative'}}>
       <div style={{fontSize:10,color:'rgba(255,255,255,.4)',fontWeight:700,textTransform:'uppercase',letterSpacing:'.5px',marginBottom:6}}>Preview as</div>
-      <select value={previewUser?.name||''} onChange={e=>{
-        const found=allOptions.find(o=>o.name===e.target.value);
-        setPreviewUser(found||null);
-      }} style={{width:'100%',padding:'7px 10px',borderRadius:8,border:'none',background:'rgba(255,255,255,.1)',color:'#fff',fontSize:12,cursor:'pointer',outline:'none'}}>
-        <option value=''>— Admin view —</option>
-        <optgroup label='Team Leaders'>{tlOptions.map(o=><option key={o.name} value={o.name}>{o.name}</option>)}</optgroup>
-        <optgroup label='RMs'>{rmOptions.map(o=><option key={o.name} value={o.name}>{o.name}</option>)}</optgroup>
-      </select>
+      <button onClick={()=>setDdOpen(o=>!o)} style={{width:'100%',padding:'7px 10px',borderRadius:8,border:'1px solid rgba(255,255,255,.15)',background:'rgba(255,255,255,.1)',color:'#fff',fontSize:12,cursor:'pointer',display:'flex',justifyContent:'space-between',alignItems:'center',textAlign:'left'}}>
+        <span style={{overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{selectedLabel}</span>
+        <span style={{fontSize:10,marginLeft:6,flexShrink:0}}>{ddOpen?'▲':'▼'}</span>
+      </button>
+      {ddOpen&&<>
+        <div onClick={()=>setDdOpen(false)} style={{position:'fixed',inset:0,zIndex:199}}/>
+        <div style={{position:'absolute',bottom:'100%',left:12,right:12,background:'#fff',borderRadius:10,boxShadow:'0 8px 32px rgba(0,0,0,.22)',zIndex:200,maxHeight:260,overflowY:'auto',marginBottom:4}}>
+          <div onClick={()=>choose(null)} style={{padding:'9px 12px',fontSize:12,color:!previewUser?B.brand:B.ink,fontWeight:!previewUser?700:400,cursor:'pointer',borderBottom:`1px solid ${B.line}`}}
+            onMouseEnter={e=>e.currentTarget.style.background='#F1F5F9'} onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+            — Admin view —
+          </div>
+          {tlOptions.length>0&&<div style={{padding:'5px 12px 2px',fontSize:10,color:B.muted,fontWeight:700,textTransform:'uppercase',letterSpacing:'.5px'}}>Team Leaders</div>}
+          {tlOptions.map(o=>(
+            <div key={o.name} onClick={()=>choose(o)} style={{padding:'8px 12px',fontSize:12,color:previewUser?.name===o.name?B.brand:B.ink,fontWeight:previewUser?.name===o.name?700:400,cursor:'pointer'}}
+              onMouseEnter={e=>e.currentTarget.style.background='#F1F5F9'} onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+              {o.name}
+            </div>
+          ))}
+          {rmOptions.length>0&&<div style={{padding:'5px 12px 2px',fontSize:10,color:B.muted,fontWeight:700,textTransform:'uppercase',letterSpacing:'.5px'}}>RMs</div>}
+          {rmOptions.map(o=>(
+            <div key={o.name} onClick={()=>choose(o)} style={{padding:'8px 12px',fontSize:12,color:previewUser?.name===o.name?B.brand:B.ink,fontWeight:previewUser?.name===o.name?700:400,cursor:'pointer'}}
+              onMouseEnter={e=>e.currentTarget.style.background='#F1F5F9'} onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+              {o.name}
+            </div>
+          ))}
+        </div>
+      </>}
     </div>}
     <div style={{padding:'16px 20px',borderTop:'1px solid rgba(255,255,255,.1)'}}>
       <div style={{color:'rgba(255,255,255,.8)',fontSize:12,fontWeight:600,marginBottom:4}}>{user.name}</div>
@@ -1335,7 +1357,7 @@ function TLView({user,onLogout}){
       </div>
     );
     return(
-      <div style={{background:B.bg,minHeight:'100vh',paddingTop:64,paddingBottom:24}}>
+      <div style={{background:B.bg,minHeight:'100%',paddingTop:0,paddingBottom:24}}>
         <div style={{padding:'24px 28px 0'}}>
           <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:20}}>
             <div>
@@ -1445,30 +1467,43 @@ function TLView({user,onLogout}){
     );
   };
 
-  return <>
-    {screen==='team'&&<TeamView/>}
-    {screen==='route'&&<RoutePlanPanel user={user}/>}
-    {isMobile&&<div style={{position:'fixed',bottom:0,left:'50%',transform:'translateX(-50%)',width:'100%',maxWidth:600,background:B.white,borderTop:`1px solid ${B.line}`,display:'flex',zIndex:100,boxShadow:'0 -4px 20px rgba(35,80,255,.1)'}}>
-      {[['team','👥','My Team'],['route','🗺️','Route Plan']].map(([id,icon,lbl])=>(
-        <button key={id} onClick={()=>setScreen(id)} style={{flex:1,padding:'10px 8px 12px',background:'none',border:'none',display:'flex',flexDirection:'column',alignItems:'center',gap:3,cursor:'pointer'}}>
-          <span style={{fontSize:22}}>{icon}</span>
-          <span style={{fontSize:11,fontWeight:screen===id?700:500,color:screen===id?B.brand:B.muted}}>{lbl}</span>
-          {screen===id&&<div style={{width:20,height:3,background:B.brand,borderRadius:2}}/>}
-        </button>
-      ))}
-    </div>}
-    {!isMobile&&<div style={{position:'fixed',top:0,left:0,right:0,background:B.white,borderBottom:`1px solid ${B.line}`,padding:'0 32px',display:'flex',gap:4,zIndex:100,boxShadow:'0 2px 8px rgba(0,0,0,.04)'}}>
-      {[['team','👥 My Team'],['route','🗺️ Route Plan']].map(([id,lbl])=>(
-        <button key={id} onClick={()=>setScreen(id)} style={{padding:'14px 18px',background:'none',border:'none',borderBottom:screen===id?`3px solid ${B.brand}`:'3px solid transparent',color:screen===id?B.brand:B.muted,fontWeight:screen===id?700:500,fontSize:13,cursor:'pointer'}}>
-          {lbl}
-        </button>
-      ))}
-      <div style={{marginLeft:'auto',display:'flex',alignItems:'center',gap:12}}>
-        <span style={{fontSize:13,color:B.muted}}>{user.name}</span>
-        <button onClick={onLogout} style={{background:B.redBg,border:'none',color:B.red,borderRadius:8,padding:'6px 12px',fontSize:12,cursor:'pointer',fontWeight:600}}>Logout</button>
+  if(isMobile) return(
+    <div style={{minHeight:'100vh',paddingBottom:80}}>
+      {screen==='team'&&<TeamView/>}
+      {screen==='zone'&&<ZoneOverviewPanel/>}
+      {screen==='route'&&<RoutePlanPanel user={user}/>}
+      <div style={{position:'fixed',bottom:0,left:'50%',transform:'translateX(-50%)',width:'100%',maxWidth:600,background:B.white,borderTop:`1px solid ${B.line}`,display:'flex',zIndex:100,boxShadow:'0 -4px 20px rgba(35,80,255,.1)'}}>
+        {[['team','👥','My Team'],['zone','📊','Zone'],['route','🗺️','Route Plan']].map(([id,icon,lbl])=>(
+          <button key={id} onClick={()=>setScreen(id)} style={{flex:1,padding:'10px 8px 12px',background:'none',border:'none',display:'flex',flexDirection:'column',alignItems:'center',gap:3,cursor:'pointer'}}>
+            <span style={{fontSize:22}}>{icon}</span>
+            <span style={{fontSize:11,fontWeight:screen===id?700:500,color:screen===id?B.brand:B.muted}}>{lbl}</span>
+            {screen===id&&<div style={{width:20,height:3,background:B.brand,borderRadius:2}}/>}
+          </button>
+        ))}
       </div>
-    </div>}
-  </>;
+    </div>
+  );
+  // Desktop: sticky top nav + scrollable content
+  return(
+    <div style={{display:'flex',flexDirection:'column',height:'100vh'}}>
+      <div style={{background:B.white,borderBottom:`1px solid ${B.line}`,padding:'0 32px',display:'flex',gap:4,flexShrink:0,boxShadow:'0 2px 8px rgba(0,0,0,.04)',position:'sticky',top:0,zIndex:100}}>
+        {[['team','👥 My Team'],['zone','📊 Zone'],['route','🗺️ Route Plan']].map(([id,lbl])=>(
+          <button key={id} onClick={()=>setScreen(id)} style={{padding:'14px 18px',background:'none',border:'none',borderBottom:screen===id?`3px solid ${B.brand}`:'3px solid transparent',color:screen===id?B.brand:B.muted,fontWeight:screen===id?700:500,fontSize:13,cursor:'pointer'}}>
+            {lbl}
+          </button>
+        ))}
+        <div style={{marginLeft:'auto',display:'flex',alignItems:'center',gap:12}}>
+          <span style={{fontSize:13,color:B.muted}}>{user.name}</span>
+          <button onClick={onLogout} style={{background:B.redBg,border:'none',color:B.red,borderRadius:8,padding:'6px 12px',fontSize:12,cursor:'pointer',fontWeight:600}}>Logout</button>
+        </div>
+      </div>
+      <div style={{flex:1,overflowY:'auto'}}>
+        {screen==='team'&&<TeamView/>}
+        {screen==='zone'&&<ZoneOverviewPanel/>}
+        {screen==='route'&&<RoutePlanPanel user={user}/>}
+      </div>
+    </div>
+  );
 }
 
 // ── TABLE HEADER / CELL helpers (outside component to avoid remount) ─────────
@@ -1555,7 +1590,10 @@ function RoutePlanPanel({user}){
   const lastFetchStr=lastFetch?new Date(lastFetch).toLocaleString('en-IN',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}):'Never synced';
 
   // Build RM plan
-  const allRMPlan=buildRMPlan(data);
+  const allRMPlanFull=buildRMPlan(data);
+  // TLs only see their own team's RMs
+  const tlTeamNames=user.role==='tl'?new Set(ALL_RMS.filter(r=>r.tl===user.name).map(r=>r.rm.toLowerCase())):null;
+  const allRMPlan=tlTeamNames?allRMPlanFull.filter(r=>tlTeamNames.has(r.rm.toLowerCase())):allRMPlanFull;
   const effectiveName=isAdmin&&previewAs?previewAs:(!isAdmin?user.name:'');
   const rmPlan=effectiveName
     ?allRMPlan.filter(r=>r.rm.toLowerCase()===effectiveName.toLowerCase())
@@ -1694,8 +1732,8 @@ function RoutePlanPanel({user}){
             )}
             {isAdmin&&(
               <select value={previewAs} onChange={e=>{setPreviewAs(e.target.value);setExpandedRM(null);}}
-                style={{padding:'7px 10px',border:`1.5px solid ${previewAs?B.brand:B.line}`,borderRadius:8,fontSize:12,background:previewAs?B.brand+'10':B.white,outline:'none',cursor:'pointer',fontWeight:previewAs?700:400,color:previewAs?B.brand:B.ink}}>
-                <option value=''>View as: Admin</option>
+                style={{padding:'7px 10px',border:`1.5px solid ${previewAs?B.brand:B.line}`,borderRadius:8,fontSize:12,background:B.white,outline:'none',cursor:'pointer',fontWeight:previewAs?700:400,color:B.ink}}>
+                <option value=''>{user.role==='tl'?'View as: All':'View as: Admin'}</option>
                 {allRMPlan.map(r=><option key={r.rm} value={r.rm}>{r.rm}{r.city?' ('+r.city+')':''}</option>)}
               </select>
             )}
