@@ -838,8 +838,12 @@ function FullNav({screen,setScreen}){
 }
 
 // Desktop sidebar nav for full access
-function DesktopSideNav({screen,setScreen,user,onLogout}){
+function DesktopSideNav({screen,setScreen,user,onLogout,previewUser,setPreviewUser}){
   const items=[['route','🗺️','Route Plan'],['teams','👥','All Teams'],['zone','📊','Zone Overview'],['admin','⚙️','Admin']];
+  const rmOptions=ALL_RMS.map(r=>({name:r.rm,role:'rm',city:r.city||''}));
+  const tlNames=[...new Set(ALL_RMS.map(r=>r.tl).filter(Boolean))];
+  const tlOptions=tlNames.map(n=>({name:n,role:'tl',city:''}));
+  const allOptions=[...tlOptions,...rmOptions];
   return <div style={{width:220,background:B.navy,height:'100vh',display:'flex',flexDirection:'column',flexShrink:0,overflowY:'auto'}}>
     <div style={{padding:'24px 20px 20px'}}>
       <img src="even-logo.svg" alt="even" style={{height:26,display:'block',marginBottom:6}}/>
@@ -853,6 +857,17 @@ function DesktopSideNav({screen,setScreen,user,onLogout}){
         </button>
       ))}
     </div>
+    {setPreviewUser&&<div style={{padding:'12px 16px',borderTop:'1px solid rgba(255,255,255,.08)'}}>
+      <div style={{fontSize:10,color:'rgba(255,255,255,.4)',fontWeight:700,textTransform:'uppercase',letterSpacing:'.5px',marginBottom:6}}>Preview as</div>
+      <select value={previewUser?.name||''} onChange={e=>{
+        const found=allOptions.find(o=>o.name===e.target.value);
+        setPreviewUser(found||null);
+      }} style={{width:'100%',padding:'7px 10px',borderRadius:8,border:'none',background:'rgba(255,255,255,.1)',color:'#fff',fontSize:12,cursor:'pointer',outline:'none'}}>
+        <option value=''>— Admin view —</option>
+        <optgroup label='Team Leaders'>{tlOptions.map(o=><option key={o.name} value={o.name}>{o.name}</option>)}</optgroup>
+        <optgroup label='RMs'>{rmOptions.map(o=><option key={o.name} value={o.name}>{o.name}</option>)}</optgroup>
+      </select>
+    </div>}
     <div style={{padding:'16px 20px',borderTop:'1px solid rgba(255,255,255,.1)'}}>
       <div style={{color:'rgba(255,255,255,.8)',fontSize:12,fontWeight:600,marginBottom:4}}>{user.name}</div>
       <div style={{color:'rgba(255,255,255,.4)',fontSize:11,marginBottom:10}}>{user.email||user.role}</div>
@@ -1122,9 +1137,9 @@ function RMView({user,onLogout}){
       </div>
 
       {/* Tab nav */}
-      <div style={{background:B.white,display:'flex',borderBottom:`1px solid ${B.line}`,padding:'0 16px'}}>
-        {[['clinics','🏥 Clinics'],['targets','🎯 My Targets'],['payments','💳 Payments']].map(([id,lbl])=>(
-          <button key={id} onClick={()=>setTab(id)} style={{flex:1,padding:'12px 8px',background:'none',border:'none',borderBottom:tab===id?`3px solid ${B.brand}`:'3px solid transparent',color:tab===id?B.brand:B.muted,fontWeight:tab===id?700:500,fontSize:13,cursor:'pointer'}}>
+      <div style={{background:B.white,display:'flex',borderBottom:`1px solid ${B.line}`,padding:'0 8px'}}>
+        {[['clinics','Clinics'],['targets','My Targets'],['payments','Payments'],['route','Route Plan']].map(([id,lbl])=>(
+          <button key={id} onClick={()=>setTab(id)} style={{flex:1,padding:'12px 4px',background:'none',border:'none',borderBottom:tab===id?`3px solid ${B.brand}`:'3px solid transparent',color:tab===id?B.brand:B.muted,fontWeight:tab===id?700:500,fontSize:12,cursor:'pointer',whiteSpace:'nowrap'}}>
             {lbl}
           </button>
         ))}
@@ -1279,6 +1294,7 @@ function RMView({user,onLogout}){
             </Card>
           ))}
         </>}
+        {tab==='route'&&<div style={{margin:'0 -16px -20px'}}><RoutePlanPanel user={user}/></div>}
       </div>
     </div>
   );
@@ -3839,6 +3855,7 @@ function AdminPanel(){
 function FullAccessView({user,onLogout}){
   const[screen,setScreen]=useState('zone');
   const[dataVer,setDataVer]=useState(0);
+  const[previewUser,setPreviewUser]=useState(null);
   const isMobile=useIsMobile();
   const isAdmin=user.role==='admin';
   useEffect(()=>{
@@ -3846,6 +3863,30 @@ function FullAccessView({user,onLogout}){
     window.addEventListener('rmDataUpdated',h);
     return()=>window.removeEventListener('rmDataUpdated',h);
   },[]);
+
+  // Preview mode — show full RM or TL view with exit banner
+  if(previewUser){
+    const exitPreview=()=>setPreviewUser(null);
+    return(
+      <div style={{position:'relative'}}>
+        <div style={{position:'fixed',top:0,left:0,right:0,zIndex:999,background:'#1E1B4B',padding:'7px 18px',display:'flex',justifyContent:'space-between',alignItems:'center',boxShadow:'0 2px 8px rgba(0,0,0,.2)'}}>
+          <div style={{display:'flex',alignItems:'center',gap:10}}>
+            <span style={{background:'rgba(255,255,255,.15)',color:'rgba(255,255,255,.7)',fontSize:10,fontWeight:700,padding:'2px 8px',borderRadius:6,textTransform:'uppercase',letterSpacing:'.5px'}}>Preview</span>
+            <span style={{color:'#fff',fontWeight:700,fontSize:13}}>{previewUser.name}</span>
+            <span style={{color:'rgba(255,255,255,.5)',fontSize:11}}>{previewUser.role.toUpperCase()}</span>
+          </div>
+          <button onClick={exitPreview} style={{background:'rgba(255,255,255,.12)',border:'none',color:'rgba(255,255,255,.85)',borderRadius:7,padding:'5px 14px',fontSize:12,fontWeight:700,cursor:'pointer'}}>Exit preview</button>
+        </div>
+        <div style={{paddingTop:36}}>
+          {previewUser.role==='tl'
+            ?<TLView user={previewUser} onLogout={exitPreview}/>
+            :<RMView user={previewUser} onLogout={exitPreview}/>
+          }
+        </div>
+      </div>
+    );
+  }
+
   const content=<>
     {screen==='zone'&&<ZoneOverviewPanel key={dataVer}/>}
     {screen==='route'&&<RoutePlanPanel user={user}/>}
@@ -3872,7 +3913,7 @@ function FullAccessView({user,onLogout}){
   return(
     <div style={{display:'flex',height:'100vh',overflow:'hidden'}}>
       <div style={{position:'sticky',top:0,height:'100vh',flexShrink:0}}>
-        <DesktopSideNav screen={screen} setScreen={setScreen} user={user} onLogout={onLogout}/>
+        <DesktopSideNav screen={screen} setScreen={setScreen} user={user} onLogout={onLogout} previewUser={previewUser} setPreviewUser={setPreviewUser}/>
       </div>
       <div style={{flex:1,overflowY:'auto'}}>{content}</div>
     </div>
