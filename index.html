@@ -51,7 +51,7 @@ const db=firebase.firestore();
 const ROLE_MAP={'omkar@even.in':{role:'admin',name:'Admin (Omkar)',city:'Pune'}};
 
 // ── DATA LAYER ─────────────────────────────────────────────────────────────
-let _cache={targets:{},tl_targets:{},admin_state:null,tl_notes:{},route_settings:{},live_leads:{},clinic_statuses:{},route_assignments:{},tl_achieved:{},sync_settings:{},payment_rows:[],monthly_reset:{},route_plan_data:{live_status:[],needs_action:[],new_onboarded:[],lastFetched:null},loaded:false};
+let _cache={targets:{},tl_targets:{},admin_state:null,tl_notes:{},route_settings:{},live_leads:{},clinic_statuses:{},route_assignments:{},tl_achieved:{},sync_settings:{},payment_rows:[],monthly_reset:{},route_plan_data:{live_status:[],needs_action:[],new_onboarded:[],disabled:[],lastFetched:null},loaded:false};
 let _autoSyncTimer=null;
 const safeKey=k=>k.replace(/[^a-zA-Z0-9_-]/g,'_');
 const clinicKey=(rm,clinic)=>safeKey(`${rm}__${clinic}`);
@@ -205,6 +205,7 @@ async function fetchRoutePlanData(url){
     live_status:json.live_status||[],
     needs_action:json.needs_action||[],
     new_onboarded:json.new_onboarded||[],
+    disabled:json.disabled||[],
     lastFetched:new Date().toISOString()
   };
   _cache.route_plan_data=data;
@@ -322,7 +323,7 @@ async function initFirestore(){
       if(d.id==='sync_settings')_cache.sync_settings=d.data()||{};
       if(d.id==='payment_rows')_cache.payment_rows=d.data()?.rows||[];
       if(d.id==='monthly_reset')_cache.monthly_reset=d.data()||{};
-      if(d.id==='route_plan_data'){const rpd=d.data()||{};_cache.route_plan_data={live_status:[],needs_action:[],new_onboarded:[],lastFetched:null,...rpd};}
+      if(d.id==='route_plan_data'){const rpd=d.data()||{};_cache.route_plan_data={live_status:[],needs_action:[],new_onboarded:[],disabled:[],lastFetched:null,...rpd};}
     });
   }catch(e){console.warn('Firestore:',e);}
   await loadClinicNotes();
@@ -1489,14 +1490,14 @@ function RoutePlanPanel({user}){
   const[search,setSearch]=useState('');
   const[syncing,setSyncing]=useState(false);
   const[syncMsg,setSyncMsg]=useState('');
-  const[data,setData]=useState(()=>({...(_cache.route_plan_data||{live_status:[],needs_action:[],new_onboarded:[],lastFetched:null})}));
+  const[data,setData]=useState(()=>({...(_cache.route_plan_data||{live_status:[],needs_action:[],new_onboarded:[],disabled:[],lastFetched:null})}));
   const[expandedRM,setExpandedRM]=useState(null);
   const[notifSentToday,setNotifSentToday]=useState(false);
 
   const isAdmin=user.role==='admin'||user.role==='tl';
 
   useEffect(()=>{
-    const h=()=>setData({...(_cache.route_plan_data||{live_status:[],needs_action:[],new_onboarded:[]})});
+    const h=()=>setData({...(_cache.route_plan_data||{live_status:[],needs_action:[],new_onboarded:[],disabled:[]})});
     window.addEventListener('routePlanUpdated',h);
     return()=>window.removeEventListener('routePlanUpdated',h);
   },[]);
@@ -1540,7 +1541,7 @@ function RoutePlanPanel({user}){
     try{
       const result=await fetchRoutePlanData(url);
       setData({...result});
-      setSyncMsg(`Synced — ${result.live_status.length} live, ${result.needs_action.length} needs action, ${result.new_onboarded.length} new`);
+      setSyncMsg(`Synced — ${result.live_status.length} live, ${result.needs_action.length} needs action, ${result.new_onboarded.length} new, ${result.disabled.length} disabled`);
     }catch(e){setSyncMsg('Sync failed — check the Apps Script URL');}
     setSyncing(false);
     setTimeout(()=>setSyncMsg(''),8000);
@@ -1549,7 +1550,8 @@ function RoutePlanPanel({user}){
   const liveData=data.live_status||[];
   const actionData=data.needs_action||[];
   const newData=data.new_onboarded||[];
-  const noData=!liveData.length&&!actionData.length&&!newData.length;
+  const disabledData=data.disabled||[];
+  const noData=!liveData.length&&!actionData.length&&!newData.length&&!disabledData.length;
   const lastFetch=data.lastFetched;
   const lastFetchStr=lastFetch?new Date(lastFetch).toLocaleString('en-IN',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}):'Never synced';
 
@@ -1630,7 +1632,7 @@ function RoutePlanPanel({user}){
   );
 
   // Health view filters
-  const allRows=[...liveData,...actionData,...newData];
+  const allRows=[...liveData,...actionData,...newData,...disabledData];
   const healthCities=['All',...new Set(allRows.map(r=>r.City||r.city).filter(Boolean))];
   const applyHF=(rows)=>rows.filter(r=>{
     const city=r.City||r.city||'';
@@ -1642,7 +1644,8 @@ function RoutePlanPanel({user}){
   const filtLive=applyHF(liveData);
   const filtAction=applyHF(actionData);
   const filtNew=applyHF(newData);
-  const healthTabs=[['live',`Live (${liveData.length})`],['action',`Needs Action (${actionData.length})`],['new',`New (${newData.length})`]];
+  const filtDisabled=applyHF(disabledData);
+  const healthTabs=[['live',`Live (${liveData.length})`],['action',`Needs Action (${actionData.length})`],['new',`New (${newData.length})`],['disabled',`Disabled (${disabledData.length})`]];
 
   return(
     <div style={{background:'#F8F9FB',minHeight:'100vh',paddingBottom:isMobile?80:20}}>
@@ -1815,6 +1818,7 @@ function RoutePlanPanel({user}){
                   {label:'Below Target',count:liveData.filter(r=>liveStatusStyle(r.Status).label==='BELOW TARGET').length,c:B.red,bg:B.redBg},
                   {label:'Needs Action',count:actionData.length,c:B.amber,bg:B.amberBg},
                   {label:'New',count:newData.length,c:B.blue2,bg:B.blueBg},
+                  {label:'Disabled',count:disabledData.length,c:'#6B7280',bg:'#F3F4F6'},
                 ].map(({label,count,c,bg})=>(
                   <span key={label} style={{background:bg,color:c,padding:'4px 12px',borderRadius:20,fontSize:11,fontWeight:700}}>{count} {label}</span>
                 ))}
@@ -1908,6 +1912,30 @@ function RoutePlanPanel({user}){
                           <RPTd bold>{r.clinic}</RPTd><RPTd>{r.rm}</RPTd><RPTd>{r.cam}</RPTd><RPTd muted>{r.city}</RPTd>
                           <RPTd>{r['Go-live date']}</RPTd><RPTd right bold>{r['Days since go-live']}</RPTd>
                           <RPTd right>{r['Total leads']}</RPTd><RPTd right>{r['Avg leads/day']}</RPTd>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              {tab==='disabled'&&(
+                <div className="tbl-wrap">
+                  <table className="dt">
+                    <thead><tr>
+                      <RPTh>Clinic</RPTh><RPTh>RM</RPTh><RPTh>CAM</RPTh><RPTh>City</RPTh>
+                      <RPTh right>Lifetime Leads</RPTh><RPTh>Last Lead Date</RPTh><RPTh right>Total Discount</RPTh>
+                    </tr></thead>
+                    <tbody>
+                      {filtDisabled.length===0?<tr><td colSpan={7} style={{padding:'28px',textAlign:'center',color:B.muted,fontSize:13}}>No clinics match filters</td></tr>
+                      :filtDisabled.map((r,i)=>(
+                        <tr key={i} style={{background:'#fff'}}>
+                          <RPTd bold>{r.Clinic||r.clinic}</RPTd>
+                          <RPTd>{r.RM||r.rm}</RPTd>
+                          <RPTd>{r.CAM||r.cam}</RPTd>
+                          <RPTd muted>{r.City||r.city}</RPTd>
+                          <RPTd right>{r['Lifetime leads']}</RPTd>
+                          <RPTd>{r['Last lead date']}</RPTd>
+                          <RPTd right>{r['Total discount']}</RPTd>
                         </tr>
                       ))}
                     </tbody>
@@ -3228,7 +3256,7 @@ function AdminPanel(){
     setRoutePlanSyncing(true);setRoutePlanMsg('');
     try{
       const result=await fetchRoutePlanData(routePlanScriptUrl.trim());
-      setRoutePlanMsg(`Synced — ${result.live_status.length} live, ${result.needs_action.length} needs action, ${result.new_onboarded.length} new`);
+      setRoutePlanMsg(`Synced — ${result.live_status.length} live, ${result.needs_action.length} needs action, ${result.new_onboarded.length} new, ${result.disabled.length} disabled`);
     }catch(e){setRoutePlanMsg('Sync failed — check the Apps Script URL and deployment settings');}
     setRoutePlanSyncing(false);
     setTimeout(()=>setRoutePlanMsg(''),8000);
@@ -3855,7 +3883,7 @@ function App(){
     if(_autoSyncTimer){clearInterval(_autoSyncTimer);_autoSyncTimer=null;}
     if(_sheetPushUnsub){_sheetPushUnsub();_sheetPushUnsub=null;}
     await auth.signOut();setUser(null);
-    _cache={targets:{},tl_targets:{},admin_state:null,tl_notes:{},route_settings:{},live_leads:{},clinic_statuses:{},route_assignments:{},tl_achieved:{},sync_settings:{},payment_rows:[],monthly_reset:{},route_plan_data:{live_status:[],needs_action:[],new_onboarded:[],lastFetched:null},loaded:false};
+    _cache={targets:{},tl_targets:{},admin_state:null,tl_notes:{},route_settings:{},live_leads:{},clinic_statuses:{},route_assignments:{},tl_achieved:{},sync_settings:{},payment_rows:[],monthly_reset:{},route_plan_data:{live_status:[],needs_action:[],new_onboarded:[],disabled:[],lastFetched:null},loaded:false};
   };
   if(loading)return <LoadingScreen message={initMsg}/>;
   if(!user)return <Login onLogin={handleLogin}/>;
