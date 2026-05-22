@@ -831,7 +831,7 @@ function FullNav({screen,setScreen}){
 // Desktop sidebar nav for full access
 function DesktopSideNav({screen,setScreen,user,onLogout}){
   const items=[['route','🗺️','Route Plan'],['teams','👥','All Teams'],['zone','📊','Zone Overview'],['admin','⚙️','Admin']];
-  return <div style={{width:220,background:B.navy,minHeight:'100vh',display:'flex',flexDirection:'column',flexShrink:0}}>
+  return <div style={{width:220,background:B.navy,height:'100vh',display:'flex',flexDirection:'column',flexShrink:0,overflowY:'auto'}}>
     <div style={{padding:'24px 20px 20px'}}>
       <img src="even-logo.svg" alt="even" style={{height:26,display:'block',marginBottom:6}}/>
       <div style={{fontSize:11,color:'rgba(255,255,255,.5)',marginTop:2}}>Sales Operations</div>
@@ -3821,9 +3821,11 @@ function FullAccessView({user,onLogout}){
   );
   // Desktop
   return(
-    <div style={{display:'flex',minHeight:'100vh'}}>
-      <DesktopSideNav screen={screen} setScreen={setScreen} user={user} onLogout={onLogout}/>
-      <div style={{flex:1,overflow:'auto'}}>{content}</div>
+    <div style={{display:'flex',height:'100vh',overflow:'hidden'}}>
+      <div style={{position:'sticky',top:0,height:'100vh',flexShrink:0}}>
+        <DesktopSideNav screen={screen} setScreen={setScreen} user={user} onLogout={onLogout}/>
+      </div>
+      <div style={{flex:1,overflowY:'auto'}}>{content}</div>
     </div>
   );
 }
