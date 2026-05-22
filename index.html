@@ -569,14 +569,21 @@ async function syncFromGoogleSheet({silent=false}={}){
     const targetRMNames=rows.map(r=>(r.RM||'').trim()).filter(Boolean);
     const{rmPayments,rmDisplayName}=buildRMPayments(payByRM,targetRMNames);
 
-    // Build raw-name → matched-target map so we can tag each payment row
+    // Build raw-name → matched-target map (mirrors all 3 passes in buildRMPayments)
     const rawToTarget={};
     for(const k of Object.keys(payByRM)){
       const t=targetRMNames.find(n=>n.toLowerCase()===k);
       if(t){rawToTarget[k]=t.toLowerCase();continue;}
       const kfw=k.split(/\s+/)[0];let bestD=Infinity,bestT=null;
       for(const t2 of targetRMNames){const d=_editDist(kfw,t2.toLowerCase().split(/\s+/)[0]);if(d<=1&&d<bestD){bestD=d;bestT=t2;}}
-      if(bestT)rawToTarget[k]=bestT.toLowerCase();
+      if(bestT){rawToTarget[k]=bestT.toLowerCase();continue;}
+      // Pass 3 — first-word prefix match (mirrors buildRMPayments)
+      const kp=k.split(/\s+/);const klw=kp[kp.length-1];let b3=null,b3d=Infinity;
+      for(const t3 of targetRMNames){
+        const tp=t3.toLowerCase().split(/\s+/);const tfw=tp[0];const tlw=tp[tp.length-1];
+        if((kfw.startsWith(tfw)||tfw.startsWith(kfw))&&_editDist(klw,tlw)<=1&&_editDist(klw,tlw)<b3d){b3d=_editDist(klw,tlw);b3=t3;}
+      }
+      if(b3)rawToTarget[k]=b3.toLowerCase();
     }
     _payDateKey=detectPayDateKey(paymentRows);
     const rawPayRows=paymentRows.map(p=>({
@@ -1104,7 +1111,7 @@ function ForcePasswordChange({user,onDone}){
 
 // ── RM VIEW ────────────────────────────────────────────────────────────────
 function RMView({user,onLogout}){
-  const[tab,setTab]=useState('clinics');
+  const[tab,setTab]=useState('targets');
   const[notes,setNotes]=useState({..._clinicNotes});
   const[payDateRange,setPayDateRange]=useState('All Time');
   const[payCustomFrom,setPayCustomFrom]=useState('');
@@ -1115,6 +1122,9 @@ function RMView({user,onLogout}){
   const lp=pct(rm.monthlyAchv,rm.monthlyTgt);
   const dp=pct(rm.dailyAchv,rm.dailyTgt);
   const rp=pct(rm.renewalAchv,rm.renewalTgt);
+  const rpData=_cache.route_plan_data;
+  const myRMPlan=buildRMPlan(rpData).find(r=>r.rm.toLowerCase()===user.name.toLowerCase());
+  const routeClinicCount=myRMPlan?.clinics.length||0;
   return(
     <div style={{background:B.bg,minHeight:'100vh',maxWidth:430,margin:'0 auto'}}>
       <div style={{background:`linear-gradient(135deg,${B.brandDark},${B.brand})`,padding:'22px 18px 30px',borderRadius:'0 0 28px 28px'}}>
@@ -1130,58 +1140,22 @@ function RMView({user,onLogout}){
           </div>
         </div>
         <div style={{display:'flex',gap:8}}>
-          <KTile label="Leads" value={rm.leads}/>
-          <KTile label="Clinics" value={rm.clinics.length}/>
+          <KTile label="Achieved" value={fmt(rm.achieved)}/>
+          <KTile label="Clinics" value={routeClinicCount}/>
           <KTile label="Target" value={fmt(rm.target)}/>
         </div>
       </div>
 
       {/* Tab nav */}
       <div style={{background:B.white,display:'flex',borderBottom:`1px solid ${B.line}`,padding:'0 8px'}}>
-        {[['clinics','Clinics'],['targets','My Targets'],['payments','Payments'],['route','Route Plan']].map(([id,lbl])=>(
-          <button key={id} onClick={()=>setTab(id)} style={{flex:1,padding:'12px 4px',background:'none',border:'none',borderBottom:tab===id?`3px solid ${B.brand}`:'3px solid transparent',color:tab===id?B.brand:B.muted,fontWeight:tab===id?700:500,fontSize:12,cursor:'pointer',whiteSpace:'nowrap'}}>
+        {[['targets','My Targets'],['payments','Payments'],['route','Route Plan']].map(([id,lbl])=>(
+          <button key={id} onClick={()=>setTab(id)} style={{flex:1,padding:'12px 4px',background:'none',border:'none',borderBottom:tab===id?`3px solid ${B.brand}`:'3px solid transparent',color:tab===id?B.brand:B.muted,fontWeight:tab===id?700:500,fontSize:13,cursor:'pointer',whiteSpace:'nowrap'}}>
             {lbl}
           </button>
         ))}
       </div>
 
       <div style={{padding:'14px 16px 20px'}}>
-        {tab==='clinics'&&<>
-          <STitle>📅 Today's Visits</STitle>
-          {rm.clinics.filter((_,i)=>i<3).map((c,i)=>(
-            <Card key={i} style={{marginBottom:10,borderLeft:`4px solid ${c.status==='Declining'?B.red:c.status==='Growing'?B.green:B.blue2}`}}>
-              <div style={{display:'flex',justifyContent:'space-between'}}>
-                <div style={{flex:1}}>
-                  <div style={{fontWeight:700,fontSize:14,color:B.ink}}>{c.name}</div>
-                  <div style={{color:B.muted,fontSize:12,marginTop:2}}>📍 {c.locality}</div>
-                  <div style={{display:'flex',gap:6,marginTop:8,flexWrap:'wrap'}}>
-                    <SBadge status={c.status}/>
-                    <span style={{background:B.brandLight,color:B.brand,padding:'2px 8px',borderRadius:6,fontSize:10,fontWeight:700}}>🕐 {c.slot}</span>
-                    <span style={{background:'#f1f5f9',color:B.muted,padding:'2px 8px',borderRadius:6,fontSize:10}}>{c.freq}</span>
-                  </div>
-                  {/* TL Note display */}
-                  {notes[clinicKey(rm.rm,c.name)]&&<div style={{background:'#fffbea',border:`1px solid #fde68a`,borderRadius:8,padding:'8px 10px',marginTop:8}}>
-                    <div style={{fontSize:10,color:B.amber,fontWeight:700,marginBottom:3}}>
-                      📝 NOTE FROM {notes[clinicKey(rm.rm,c.name)].tlName?.toUpperCase()}
-                    </div>
-                    <div style={{fontSize:12,color:B.ink,lineHeight:1.5}}>{notes[clinicKey(rm.rm,c.name)].note}</div>
-                  </div>}
-                </div>
-                <div style={{textAlign:'center',marginLeft:12,flexShrink:0}}>
-                  <div style={{fontSize:24,fontWeight:800,color:B.brand}}>{c.leads}</div>
-                  <div style={{fontSize:10,color:B.muted}}>Leads</div>
-                </div>
-              </div>
-            </Card>
-          ))}
-          <STitle mt={18}>All Clinics</STitle>
-          {rm.clinics.map((c,i)=>(
-            <Card key={i} style={{marginBottom:8,display:'flex',alignItems:'center',gap:12}}>
-              <div style={{flex:1}}><div style={{fontWeight:600,fontSize:13}}>{c.name}</div><div style={{color:B.muted,fontSize:11,marginTop:1}}>{c.locality} · {c.freq}</div></div>
-              <div style={{textAlign:'right'}}><div style={{fontWeight:800,fontSize:18,color:B.brand}}>{c.leads}</div><SBadge status={c.status}/></div>
-            </Card>
-          ))}
-        </>}
 
         {tab==='payments'&&(()=>{
           const rmLo=rm.rm.toLowerCase();
