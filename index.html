@@ -634,14 +634,23 @@ async function syncFromGoogleSheet({silent=false}={}){
         rm:displayRM,tl:sheetTL,city:sheetCity,
         target:parseFloat(r['Target (INR)'])||0,
         achieved:paid,
-        refund:0,monthlyTgt:parseFloat(r['Monthly Leads Target'])||0,
-        monthlyAchv:0,dailyTgt:0,dailyAchv:0,renewalTgt:0,renewalAchv:0,
+        refund:0,
+        monthlyTgt:parseFloat(r['Monthly Leads Target'])||0,
+        monthlyAchv:parseFloat(r['Monthly Leads Achieved'])||0,
+        dailyTgt:parseFloat(r['Daily Leads Target'])||0,
+        dailyAchv:parseFloat(r['Daily Leads Achieved'])||0,
+        renewalTgt:parseFloat(r['Renewal Target'])||0,
+        renewalAchv:parseFloat(r['Renewals Achieved'])||0,
         leads:0,clinics:savedClinics[sheetRMLo]||savedClinics[displayRM.toLowerCase()]||[]
       };
       ALL_RMS.push(rmObj);
       const key=safeKey(`${sheetTL}|${displayRM}`);
       s[key]={tl:sheetTL,rm:displayRM,city:sheetCity,
-        target:rmObj.target,netAchieved:rmObj.achieved,monthlyLeads:rmObj.monthlyTgt,updatedAt:now};
+        target:rmObj.target,netAchieved:rmObj.achieved,
+        monthlyLeads:rmObj.monthlyTgt,monthlyAchieved:rmObj.monthlyAchv,
+        dailyLeads:rmObj.dailyTgt,dailyAchieved:rmObj.dailyAchv,
+        renewalTarget:rmObj.renewalTgt,renewalAchieved:rmObj.renewalAchv,
+        updatedAt:now};
     });
 
     // Recompute aggregates — use payByTL for TL achieved (avoids RM name mismatch)
