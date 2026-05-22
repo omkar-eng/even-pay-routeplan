@@ -51,7 +51,7 @@ const db=firebase.firestore();
 const ROLE_MAP={'omkar@even.in':{role:'admin',name:'Admin (Omkar)',city:'Pune'}};
 
 // ── DATA LAYER ─────────────────────────────────────────────────────────────
-let _cache={targets:{},tl_targets:{},admin_state:null,tl_notes:{},route_settings:{},live_leads:{},clinic_statuses:{},route_assignments:{},tl_achieved:{},sync_settings:{},payment_rows:[],loaded:false};
+let _cache={targets:{},tl_targets:{},admin_state:null,tl_notes:{},route_settings:{},live_leads:{},clinic_statuses:{},route_assignments:{},tl_achieved:{},sync_settings:{},payment_rows:[],monthly_reset:{},loaded:false};
 let _autoSyncTimer=null;
 const safeKey=k=>k.replace(/[^a-zA-Z0-9_-]/g,'_');
 const clinicKey=(rm,clinic)=>safeKey(`${rm}__${clinic}`);
@@ -217,13 +217,44 @@ async function initFirestore(){
       if(d.id==='tl_achieved')_cache.tl_achieved=d.data()||{};
       if(d.id==='sync_settings')_cache.sync_settings=d.data()||{};
       if(d.id==='payment_rows')_cache.payment_rows=d.data()?.rows||[];
+      if(d.id==='monthly_reset')_cache.monthly_reset=d.data()||{};
     });
   }catch(e){console.warn('Firestore:',e);}
   await loadClinicNotes();
   _cache.loaded=true;
   applyStoreToRMs();
+  await checkAndResetMonthlyTargets();
   setupAutoSync();
   setupSheetPushListener();
+}
+async function checkAndResetMonthlyTargets(){
+  const monthKey=new Date().toISOString().slice(0,7); // "YYYY-MM"
+  if((_cache.monthly_reset||{}).month===monthKey)return false; // already reset this month
+  const resetFields={target:0,refund:0,monthlyLeads:0,dailyLeads:0,renewalTarget:0,
+    netAchieved:0,monthlyAchieved:0,dailyAchieved:0,renewalAchieved:0};
+  // Reset in-memory RM targets
+  Object.keys(_cache.targets).forEach(k=>{_cache.targets[k]={..._cache.targets[k],...resetFields};});
+  // Reset in-memory TL targets
+  const tlReset={};
+  Object.entries(_cache.tl_targets||{}).forEach(([k,v])=>{tlReset[k]={...v,...resetFields};});
+  _cache.tl_targets=tlReset;
+  // Clear payment rows for the new month
+  _cache.payment_rows=[];
+  const resetMeta={month:monthKey,resetAt:new Date().toISOString()};
+  _cache.monthly_reset=resetMeta;
+  // Persist to Firestore
+  const rmWrites=Object.keys(_cache.targets).map(k=>
+    db.collection('targets').doc(k).update(resetFields).catch(()=>{})
+  );
+  await Promise.all([
+    ...rmWrites,
+    db.collection('config').doc('tl_targets').set(tlReset).catch(()=>{}),
+    db.collection('config').doc('payment_rows').set({rows:[]}).catch(()=>{}),
+    db.collection('config').doc('monthly_reset').set(resetMeta).catch(()=>{}),
+  ]);
+  applyStoreToRMs();
+  window.dispatchEvent(new Event('rmDataUpdated'));
+  return true;
 }
 let _sheetPushUnsub=null;
 function setupSheetPushListener(){
@@ -2606,6 +2637,7 @@ function AdminPanel(){
   const[syncIntervalMin,setSyncIntervalMin]=useState(_cache.sync_settings?.intervalMin||30);
   const[autoSyncMsg,setAutoSyncMsg]=useState('');
   const[payDiag,setPayDiag]=useState(null);
+  const[resetMsg,setResetMsg]=useState('');
   const lastSynced=_cache.sync_settings?.lastSynced
     ?new Date(_cache.sync_settings.lastSynced).toLocaleString('en-IN',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})
     :null;
@@ -3103,6 +3135,28 @@ function AdminPanel(){
                 {payDiag.total===0&&<div style={{color:'#c62828',marginTop:4,fontFamily:'sans-serif',fontWeight:600}}>No payment rows loaded — run "Pull from Google Sheet" first.</div>}
                 {payDiag.total>0&&payDiag.dated===0&&<div style={{color:'#e65100',marginTop:4,fontFamily:'sans-serif',fontWeight:600}}>Rows exist but none have dates — date column not matched. Check column name in sheet.</div>}
               </div>}
+            </div>
+          </Card>
+
+          <Card style={{borderLeft:'4px solid #b91c1c',marginTop:16}}>
+            <div style={{fontWeight:700,fontSize:16,color:'#b91c1c',marginBottom:4}}>Monthly Target Reset</div>
+            <div style={{fontSize:13,color:B.muted,marginBottom:10}}>
+              All RM and TL targets reset automatically to 0 at the start of each month. Use the button below to reset manually if needed — for example, when preparing for a new month early.
+            </div>
+            {_cache.monthly_reset?.resetAt&&<div style={{fontSize:12,color:B.muted,marginBottom:12}}>
+              Last reset: <strong>{new Date(_cache.monthly_reset.resetAt).toLocaleString('en-IN',{day:'numeric',month:'long',year:'numeric',hour:'2-digit',minute:'2-digit'})}</strong> ({_cache.monthly_reset.month})
+            </div>}
+            <div style={{display:'flex',gap:10,alignItems:'center'}}>
+              <button onClick={async()=>{
+                if(!window.confirm('Reset ALL targets and achievements to 0 for every RM and TL? This cannot be undone. Run a Google Sheet sync afterwards to load the new month\'s targets.'))return;
+                setResetMsg('Resetting…');
+                _cache.monthly_reset={};
+                const done=await checkAndResetMonthlyTargets();
+                setResetMsg(done?'✅ All targets reset to 0. Run a sync to load new targets.':'Already reset this month.');
+              }} style={{padding:'10px 20px',background:'#b91c1c',color:'#fff',border:'none',borderRadius:10,fontSize:13,fontWeight:700,cursor:'pointer'}}>
+                Reset All Targets Now
+              </button>
+              {resetMsg&&<span style={{fontSize:13,color:resetMsg.includes('✅')?B.green:B.muted,fontWeight:600}}>{resetMsg}</span>}
             </div>
           </Card>
 
