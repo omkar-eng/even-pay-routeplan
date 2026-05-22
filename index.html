@@ -200,6 +200,7 @@ async function fetchRoutePlanData(url){
   if(!resp.ok)throw new Error('HTTP '+resp.status);
   const json=await resp.json();
   if(json.status!=='ok')throw new Error(json.message||'Script error');
+  const oldData=_cache.route_plan_data;
   const data={
     live_status:json.live_status||[],
     needs_action:json.needs_action||[],
@@ -210,7 +211,92 @@ async function fetchRoutePlanData(url){
   await db.collection('config').doc('route_plan_data').set(data).catch(()=>{});
   await saveRouteSettings({routePlanScriptUrl:url,routePlanLastFetched:data.lastFetched});
   window.dispatchEvent(new Event('routePlanUpdated'));
+  await detectPlanChangesAndNotify(oldData,data);
   return data;
+}
+
+// ── ROUTE PLAN INTELLIGENCE ────────────────────────────────────────────────
+function calcVisitFreq(c){
+  const status=(c.Status||'').toUpperCase();
+  const trend=c.Trend||'';
+  const gl=parseFloat(c['GL%'])||0;
+  const dormancy=c.dormancy_status||'';
+  const daysLive=parseInt(c['Days since go-live'])||0;
+  if((daysLive>0&&daysLive<30)||dormancy==='Never active')return'Daily';
+  if(dormancy.includes('14+'))return'Daily';
+  if(status.includes('BELOW')||trend==='Declining')return'Daily';
+  if(gl>0&&gl<20)return'Daily';
+  if(dormancy.includes('7-14'))return'Bi-weekly';
+  if(status.includes('RAMPING')||(daysLive>=30&&daysLive<60))return'Bi-weekly';
+  return'Bi-weekly';
+}
+
+function buildRMPlan(data){
+  const all=[];const seen=new Set();
+  (data.live_status||[]).forEach(c=>{
+    const rm=(c.RM||'').trim();const name=(c.Clinic||'').trim();
+    if(!rm||!name)return;const k=(rm+'|'+name).toLowerCase();
+    if(seen.has(k))return;seen.add(k);
+    all.push({name,rm,city:c.City||'',cam:c.CAM||'',status:c.Status||'',
+      gl:parseFloat(c['GL%'])||0,trend:c.Trend||'',avgLeads:parseFloat(c['Avg leads/day'])||0,
+      source:'live',frequency:calcVisitFreq(c)});
+  });
+  (data.needs_action||[]).forEach(c=>{
+    const rm=(c.rm||'').trim();const name=(c.clinic||'').trim();
+    if(!rm||!name)return;const k=(rm+'|'+name).toLowerCase();
+    if(seen.has(k))return;seen.add(k);
+    all.push({name,rm,city:c.city||'',cam:c.cam||'',status:'Dormant',gl:0,trend:'',
+      dormancy:c.dormancy_status||'',daysSince:parseInt(c.days_since_last_lead)||0,
+      source:'action',frequency:calcVisitFreq(c)});
+  });
+  (data.new_onboarded||[]).forEach(c=>{
+    const rm=(c.rm||'').trim();const name=(c.clinic||'').trim();
+    if(!rm||!name)return;const k=(rm+'|'+name).toLowerCase();
+    if(seen.has(k))return;seen.add(k);
+    all.push({name,rm,city:c.city||'',cam:c.cam||'',status:'New',gl:0,trend:'New',
+      daysLive:parseInt(c['Days since go-live'])||0,source:'new',frequency:calcVisitFreq(c)});
+  });
+  const rmMap={};
+  all.forEach(c=>{
+    if(!rmMap[c.rm])rmMap[c.rm]={rm:c.rm,city:c.city,clinics:[]};
+    rmMap[c.rm].clinics.push(c);
+  });
+  const biPairs=[[1,4],[2,5],[3,6]];
+  Object.values(rmMap).forEach(r=>{
+    r.clinics.sort((a,b)=>({'Daily':0,'Bi-weekly':1}[a.frequency]||1)-({'Daily':0,'Bi-weekly':1}[b.frequency]||1)||a.name.localeCompare(b.name));
+    let bi=0;
+    r.clinics.forEach(c=>{
+      if(c.frequency==='Daily')c.visitDays=[1,2,3,4,5,6];
+      else{c.visitDays=biPairs[bi%3];bi++;}
+    });
+  });
+  return Object.values(rmMap).sort((a,b)=>a.rm.localeCompare(b.rm));
+}
+
+function isVisitToday(c){const d=new Date().getDay();return(c.visitDays||[]).includes(d);}
+const RP_DAY_NAMES=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+function cleanStatus(s){return(s||'').replace(/^\d+\.\s*/,'').trim();}
+
+async function detectPlanChangesAndNotify(oldData,newData){
+  if(!(oldData?.live_status||[]).length)return;
+  const oldMap={};
+  (oldData.live_status||[]).forEach(c=>{if(c.Clinic)oldMap[c.Clinic.toLowerCase()]=c;});
+  const notifs=[];const now=new Date().toISOString();
+  for(const c of(newData.live_status||[])){
+    const old=oldMap[(c.Clinic||'').toLowerCase()];
+    const rm=c.RM||c.rm;if(!old||!rm)continue;
+    if(old.Status!==c.Status&&old.Status&&c.Status)
+      notifs.push({rmName:rm,type:'status_change',read:false,createdAt:now,
+        message:`${c.Clinic}: ${cleanStatus(old.Status)} → ${cleanStatus(c.Status)}`});
+    if(old.Trend!=='Declining'&&c.Trend==='Declining')
+      notifs.push({rmName:rm,type:'plan_change',read:false,createdAt:now,
+        message:`${c.Clinic} is now Declining — moved to daily visits`});
+    const of2=calcVisitFreq(old),nf=calcVisitFreq(c);
+    if(of2!==nf&&old.Status===c.Status)
+      notifs.push({rmName:rm,type:'plan_change',read:false,createdAt:now,
+        message:`${c.Clinic} visit schedule: ${of2} → ${nf}`});
+  }
+  if(notifs.length)await Promise.all(notifs.map(n=>db.collection('notifications').add(n).catch(()=>{})));
 }
 
 async function updateClinicStatus(rmName,clinicName,newStatus,oldStatus){
@@ -1397,20 +1483,55 @@ const RPTd=({children,right,muted,bold,color})=>(
 // ── ROUTE PLAN ─────────────────────────────────────────────────────────────
 function RoutePlanPanel({user}){
   const isMobile=useIsMobile();
+  const[view,setView]=useState('plan'); // 'plan' | 'health'
   const[tab,setTab]=useState('live');
   const[cityF,setCityF]=useState('All');
-  const[rmF,setRmF]=useState('All');
-  const[camF,setCamF]=useState('All');
   const[search,setSearch]=useState('');
   const[syncing,setSyncing]=useState(false);
   const[syncMsg,setSyncMsg]=useState('');
   const[data,setData]=useState(()=>({...(_cache.route_plan_data||{live_status:[],needs_action:[],new_onboarded:[],lastFetched:null})}));
+  const[expandedRM,setExpandedRM]=useState(null);
+  const[notifSentToday,setNotifSentToday]=useState(false);
+
+  const isAdmin=user.role==='admin'||user.role==='tl';
 
   useEffect(()=>{
     const h=()=>setData({...(_cache.route_plan_data||{live_status:[],needs_action:[],new_onboarded:[]})});
     window.addEventListener('routePlanUpdated',h);
     return()=>window.removeEventListener('routePlanUpdated',h);
   },[]);
+
+  // Morning notification: once per day per RM
+  useEffect(()=>{
+    if(view!=='plan')return;
+    const todayKey='morningNotif_'+new Date().toISOString().slice(0,10);
+    if(localStorage.getItem(todayKey))return;
+    const plan=buildRMPlan(data);
+    if(!plan.length)return;
+    const myRMs=isAdmin?plan:plan.filter(r=>r.rm.toLowerCase()===user.name.toLowerCase());
+    if(!myRMs.length)return;
+    const msgs=[];
+    myRMs.forEach(r=>{
+      const todayVisits=r.clinics.filter(c=>isVisitToday(c));
+      if(!todayVisits.length)return;
+      const lines=[`Today's plan for ${r.rm} (${RP_DAY_NAMES[new Date().getDay()]}):`];
+      todayVisits.forEach(c=>lines.push(`• ${c.name} — ${c.frequency}${c.status?' ['+cleanStatus(c.status)+']':''}`));
+      msgs.push(lines.join('\n'));
+    });
+    if(!msgs.length)return;
+    const now=new Date().toISOString();
+    const notifs=myRMs.map(r=>{
+      const todayVisits=r.clinics.filter(c=>isVisitToday(c));
+      if(!todayVisits.length)return null;
+      return{
+        rmName:r.rm,type:'morning_plan',read:false,createdAt:now,
+        message:`Today (${RP_DAY_NAMES[new Date().getDay()]}): ${todayVisits.length} clinic${todayVisits.length>1?'s':''} to visit — ${todayVisits.map(c=>c.name).join(', ')}`
+      };
+    }).filter(Boolean);
+    Promise.all(notifs.map(n=>db.collection('notifications').add(n).catch(()=>{})));
+    localStorage.setItem(todayKey,'1');
+    setNotifSentToday(true);
+  },[data,view]);
 
   const handleSync=async()=>{
     const url=_cache.route_settings?.routePlanScriptUrl;
@@ -1429,26 +1550,62 @@ function RoutePlanPanel({user}){
   const actionData=data.needs_action||[];
   const newData=data.new_onboarded||[];
   const noData=!liveData.length&&!actionData.length&&!newData.length;
+  const lastFetch=data.lastFetched;
+  const lastFetchStr=lastFetch?new Date(lastFetch).toLocaleString('en-IN',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}):'Never synced';
 
-  const allRows=[...liveData,...actionData,...newData];
-  const uniq=(arr)=>['All',...new Set(arr.filter(Boolean))];
-  const cities=uniq(allRows.map(r=>r.City||r.city));
-  const rms=uniq(allRows.map(r=>r.RM||r.rm));
-  const cams=uniq(allRows.map(r=>r.CAM||r.cam));
+  // Build RM plan
+  const allRMPlan=buildRMPlan(data);
+  const rmPlan=isAdmin
+    ?(cityF==='All'?allRMPlan:allRMPlan.map(r=>({...r,clinics:r.clinics.filter(c=>c.city===cityF)})).filter(r=>r.clinics.length))
+    :allRMPlan.filter(r=>r.rm.toLowerCase()===user.name.toLowerCase());
 
-  const applyF=(rows)=>rows.filter(r=>{
-    const city=r.City||r.city||'';const rm=r.RM||r.rm||'';const cam=r.CAM||r.cam||'';
-    const clinic=r.Clinic||r.clinic||'';
-    if(cityF!=='All'&&city!==cityF)return false;
-    if(rmF!=='All'&&rm!==rmF)return false;
-    if(camF!=='All'&&cam!==camF)return false;
-    if(search&&!clinic.toLowerCase().includes(search.toLowerCase())&&!rm.toLowerCase().includes(search.toLowerCase()))return false;
-    return true;
-  });
-  const filtLive=applyF(liveData);
-  const filtAction=applyF(actionData);
-  const filtNew=applyF(newData);
+  const allCities=['All',...new Set([...liveData,...actionData,...newData].map(r=>r.City||r.city).filter(Boolean))];
 
+  const todayDow=new Date().getDay();
+  const todayName=RP_DAY_NAMES[todayDow];
+
+  // WhatsApp share for one RM
+  const shareWhatsApp=(rmData)=>{
+    const todayVisits=rmData.clinics.filter(c=>isVisitToday(c));
+    if(!todayVisits.length){alert('No visits scheduled for today for '+rmData.rm);return;}
+    const lines=[`*Route Plan — ${todayName}, ${new Date().toLocaleDateString('en-IN',{day:'numeric',month:'short'})}*`,`RM: ${rmData.rm}`,''];
+    todayVisits.forEach((c,i)=>{
+      lines.push(`${i+1}. ${c.name}`);
+      const meta=[];
+      if(c.status)meta.push(cleanStatus(c.status));
+      if(c.gl)meta.push(`GL: ${c.gl}%`);
+      if(c.trend)meta.push(c.trend);
+      if(meta.length)lines.push(`   ${meta.join(' | ')}`);
+    });
+    lines.push('','_via Even Route Plan_');
+    window.open('https://wa.me/?text='+encodeURIComponent(lines.join('\n')),'_blank');
+  };
+
+  // Clinic status helpers
+  const clinicStatusStyle=(c)=>{
+    if(c.source==='action')return{bg:c.dormancy&&c.dormancy.includes('14+')?B.redBg:B.amberBg,col:c.dormancy&&c.dormancy.includes('14+')?B.red:B.amber,label:c.dormancy||'Dormant'};
+    if(c.source==='new')return{bg:B.blueBg,col:B.blue2,label:'New'};
+    const u=(c.status||'').toUpperCase();
+    if(u.includes('BELOW'))return{bg:B.redBg,col:B.red,label:'Below Target'};
+    if(u.includes('RAMPING'))return{bg:B.amberBg,col:B.amber,label:'Ramping'};
+    return{bg:B.greenBg,col:B.green,label:'Live'};
+  };
+
+  const FreqBadge=({freq})=>(
+    <span style={{
+      background:freq==='Daily'?B.redBg:B.blueBg,
+      color:freq==='Daily'?B.red:B.blue2,
+      padding:'2px 8px',borderRadius:5,fontSize:10,fontWeight:700,
+      textTransform:'uppercase',letterSpacing:'.4px',whiteSpace:'nowrap'
+    }}>{freq}</span>
+  );
+
+  const StatusDot=({c})=>{
+    const s=clinicStatusStyle(c);
+    return<span style={{display:'inline-block',width:7,height:7,borderRadius:'50%',background:s.col,marginRight:5,flexShrink:0}}/>;
+  };
+
+  // Clinic Health tab helpers (kept for health view)
   const liveStatusStyle=(s='')=>{
     const u=s.toUpperCase();
     if(u.includes('BELOW'))return{bg:B.redBg,c:B.red,label:'BELOW TARGET'};
@@ -1468,48 +1625,48 @@ function RoutePlanPanel({user}){
     if((d||'').includes('14+'))return{bg:B.redBg,c:B.red};
     return{bg:'#F1F5F9',c:B.muted};
   };
-
   const Badge=({label,bg,c})=>(
     <span style={{background:bg,color:c,padding:'3px 9px',borderRadius:6,fontSize:10,fontWeight:700,textTransform:'uppercase',letterSpacing:'.4px',whiteSpace:'nowrap'}}>{label||'—'}</span>
   );
 
-  const lastFetch=data.lastFetched;
-  const lastFetchStr=lastFetch?new Date(lastFetch).toLocaleString('en-IN',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}):'Never synced';
-
-  const tabs=[['live',`Live Clinics (${liveData.length})`],['action',`Needs Action (${actionData.length})`],['new',`New Onboarded (${newData.length})`]];
+  // Health view filters
+  const allRows=[...liveData,...actionData,...newData];
+  const healthCities=['All',...new Set(allRows.map(r=>r.City||r.city).filter(Boolean))];
+  const applyHF=(rows)=>rows.filter(r=>{
+    const city=r.City||r.city||'';
+    const clinic=r.Clinic||r.clinic||'';const rm=r.RM||r.rm||'';
+    if(cityF!=='All'&&city!==cityF)return false;
+    if(search&&!clinic.toLowerCase().includes(search.toLowerCase())&&!rm.toLowerCase().includes(search.toLowerCase()))return false;
+    return true;
+  });
+  const filtLive=applyHF(liveData);
+  const filtAction=applyHF(actionData);
+  const filtNew=applyHF(newData);
+  const healthTabs=[['live',`Live (${liveData.length})`],['action',`Needs Action (${actionData.length})`],['new',`New (${newData.length})`]];
 
   return(
     <div style={{background:'#F8F9FB',minHeight:'100vh',paddingBottom:isMobile?80:20}}>
-      <div style={{background:B.white,borderBottom:`1px solid ${B.line}`,padding:'20px 20px 0'}}>
+      {/* Header */}
+      <div style={{background:B.white,borderBottom:`1px solid ${B.line}`,padding:isMobile?'16px 16px 0':'20px 28px 0'}}>
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:12,marginBottom:12,flexWrap:'wrap'}}>
           <div>
-            <div style={{fontSize:22,fontWeight:800,color:B.ink,letterSpacing:'-.3px'}}>Clinic Health</div>
+            <div style={{fontSize:isMobile?18:22,fontWeight:800,color:B.ink,letterSpacing:'-.3px'}}>Route Plan</div>
             <div style={{fontSize:12,color:B.muted,marginTop:2}}>Last synced: {lastFetchStr}</div>
           </div>
-          <button onClick={handleSync} disabled={syncing}
-            style={{background:syncing?B.line:B.brand,border:'none',color:'#fff',borderRadius:8,padding:'8px 18px',fontSize:12,fontWeight:700,cursor:syncing?'default':'pointer',alignSelf:'center'}}>
-            {syncing?'Syncing…':'↻ Sync'}
-          </button>
-        </div>
-        {syncMsg&&<div style={{fontSize:12,color:syncMsg.includes('failed')?B.red:B.green,fontWeight:600,marginBottom:10,paddingBottom:4}}>{syncMsg}</div>}
-        {!noData&&(
-          <div style={{display:'flex',gap:8,flexWrap:'wrap',marginBottom:12}}>
-            {[
-              {label:'Live',count:liveData.filter(r=>liveStatusStyle(r.Status).label==='LIVE').length,c:B.green,bg:B.greenBg},
-              {label:'Ramping',count:liveData.filter(r=>liveStatusStyle(r.Status).label==='RAMPING').length,c:B.amber,bg:B.amberBg},
-              {label:'Below Target',count:liveData.filter(r=>liveStatusStyle(r.Status).label==='BELOW TARGET').length,c:B.red,bg:B.redBg},
-              {label:'Needs Action',count:actionData.length,c:B.amber,bg:B.amberBg},
-              {label:'New',count:newData.length,c:B.blue2,bg:B.blueBg},
-            ].map(({label,count,c,bg})=>(
-              <span key={label} style={{background:bg,color:c,padding:'4px 12px',borderRadius:20,fontSize:11,fontWeight:700}}>{count} {label}</span>
-            ))}
+          <div style={{display:'flex',gap:8,alignItems:'center'}}>
+            <button onClick={handleSync} disabled={syncing}
+              style={{background:syncing?B.line:B.brand,border:'none',color:'#fff',borderRadius:8,padding:'8px 16px',fontSize:12,fontWeight:700,cursor:syncing?'default':'pointer'}}>
+              {syncing?'Syncing…':'↻ Sync'}
+            </button>
           </div>
-        )}
-        <div style={{display:'flex',gap:0,borderBottom:'none',overflowX:'auto'}}>
-          {tabs.map(([id,lbl])=>(
-            <button key={id} onClick={()=>setTab(id)}
-              style={{padding:'10px 18px',border:'none',background:'none',fontSize:12,fontWeight:tab===id?700:500,
-              color:tab===id?B.brand:B.muted,borderBottom:tab===id?`2.5px solid ${B.brand}`:'2.5px solid transparent',
+        </div>
+        {syncMsg&&<div style={{fontSize:12,color:syncMsg.includes('failed')?B.red:B.green,fontWeight:600,marginBottom:10}}>{syncMsg}</div>}
+        {/* View toggle */}
+        <div style={{display:'flex',gap:0,overflowX:'auto'}}>
+          {[['plan','Visit Schedule'],['health','Clinic Health']].map(([id,lbl])=>(
+            <button key={id} onClick={()=>setView(id)}
+              style={{padding:'10px 20px',border:'none',background:'none',fontSize:12,fontWeight:view===id?700:500,
+              color:view===id?B.brand:B.muted,borderBottom:view===id?`2.5px solid ${B.brand}`:'2.5px solid transparent',
               cursor:'pointer',borderRadius:0,whiteSpace:'nowrap',flexShrink:0}}>
               {lbl}
             </button>
@@ -1517,107 +1674,249 @@ function RoutePlanPanel({user}){
         </div>
       </div>
 
-      <div style={{background:B.white,borderBottom:`1px solid ${B.line}`,padding:'12px 20px',display:'flex',gap:8,flexWrap:'wrap'}}>
-        <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search clinic or RM..."
-          style={{flex:1,minWidth:160,padding:'7px 12px',border:`1.5px solid ${B.line}`,borderRadius:8,fontSize:12,outline:'none'}}/>
-        {[['City',cities,cityF,setCityF],['RM',rms,rmF,setRmF],['CAM',cams,camF,setCamF]].map(([l,opts,v,s])=>(
-          <select key={l} value={v} onChange={e=>s(e.target.value)}
-            style={{padding:'7px 10px',border:`1.5px solid ${B.line}`,borderRadius:8,fontSize:12,fontWeight:500,background:B.white,outline:'none',cursor:'pointer',minWidth:80}}>
-            <option value="All">{l}: All</option>
-            {opts.filter(o=>o!=='All').map(o=><option key={o}>{o}</option>)}
-          </select>
-        ))}
-      </div>
-
-      {noData?(
-        <div style={{textAlign:'center',padding:'72px 24px',color:B.muted}}>
-          <div style={{fontSize:14,fontWeight:700,color:B.ink,marginBottom:8}}>No clinic data loaded</div>
-          <div style={{fontSize:12,lineHeight:1.8}}>
-            Admin must configure the Apps Script URL in<br/>
-            <strong style={{color:B.ink}}>Admin → Route Sync → Clinic Health URL</strong><br/>
-            then click Sync.
+      {/* ── VISIT SCHEDULE VIEW ── */}
+      {view==='plan'&&(
+        <>
+          {/* Filters */}
+          <div style={{background:B.white,borderBottom:`1px solid ${B.line}`,padding:'10px 16px',display:'flex',gap:8,flexWrap:'wrap',alignItems:'center'}}>
+            <div style={{display:'flex',gap:6,alignItems:'center',background:B.brand+'18',borderRadius:8,padding:'6px 14px'}}>
+              <span style={{fontSize:12,fontWeight:700,color:B.brand}}>{todayName}</span>
+              <span style={{fontSize:11,color:B.muted}}>{new Date().toLocaleDateString('en-IN',{day:'numeric',month:'short'})}</span>
+            </div>
+            {isAdmin&&(
+              <select value={cityF} onChange={e=>setCityF(e.target.value)}
+                style={{padding:'7px 10px',border:`1.5px solid ${B.line}`,borderRadius:8,fontSize:12,background:B.white,outline:'none',cursor:'pointer'}}>
+                {allCities.map(c=><option key={c}>{c==='All'?'City: All':c}</option>)}
+              </select>
+            )}
           </div>
-        </div>
-      ):(
-        <div style={{padding:'16px 20px'}}>
-          {tab==='live'&&(
-            <div className="tbl-wrap">
-              <table className="dt">
-                <thead><tr>
-                  <RPTh>Status</RPTh><RPTh>Clinic</RPTh><RPTh>RM</RPTh><RPTh>CAM</RPTh><RPTh>City</RPTh>
-                  <RPTh right>Avg/Day</RPTh><RPTh right>GL%</RPTh><RPTh>Trend</RPTh><RPTh right>Weeks</RPTh><RPTh right>Total Leads</RPTh>
-                </tr></thead>
-                <tbody>
-                  {filtLive.length===0?<tr><td colSpan={10} style={{padding:'28px',textAlign:'center',color:B.muted,fontSize:13}}>No clinics match the current filters</td></tr>
-                  :filtLive.map((r,i)=>{const ss=liveStatusStyle(r.Status||'');const ts=trendStyle(r.Trend||'');return(
-                    <tr key={i} style={{background:'#fff'}}>
-                      <RPTd><Badge label={ss.label} bg={ss.bg} c={ss.c}/></RPTd>
-                      <RPTd bold>{r.Clinic}</RPTd>
-                      <RPTd>{r.RM}</RPTd>
-                      <RPTd>{r.CAM}</RPTd>
-                      <RPTd muted>{r.City}</RPTd>
-                      <RPTd right bold>{r['Avg leads/day']}</RPTd>
-                      <RPTd right>{r['GL%']}</RPTd>
-                      <RPTd><span style={{color:ts.c,fontWeight:600,fontSize:12}}>{ts.prefix}{r.Trend||'—'}</span></RPTd>
-                      <RPTd right>{r.Weeks}</RPTd>
-                      <RPTd right bold>{r['Total leads']}</RPTd>
-                    </tr>
-                  );})}
-                </tbody>
-              </table>
+
+          {noData?(
+            <div style={{textAlign:'center',padding:'72px 24px',color:B.muted}}>
+              <div style={{fontSize:14,fontWeight:700,color:B.ink,marginBottom:8}}>No clinic data loaded</div>
+              <div style={{fontSize:12,lineHeight:1.8}}>
+                Admin must configure the Apps Script URL in<br/>
+                <strong style={{color:B.ink}}>Admin → Route Sync → Clinic Health URL</strong><br/>
+                then click Sync.
+              </div>
+            </div>
+          ):(
+            <div style={{padding:isMobile?'12px 12px':'16px 28px',display:'flex',flexDirection:'column',gap:16}}>
+              {rmPlan.length===0?(
+                <div style={{textAlign:'center',padding:'48px 24px',color:B.muted,fontSize:13}}>No RMs found in the loaded data</div>
+              ):rmPlan.map((r,ri)=>{
+                const todayVisits=r.clinics.filter(c=>isVisitToday(c));
+                const isExpanded=expandedRM===r.rm;
+                const dailyCount=r.clinics.filter(c=>c.frequency==='Daily').length;
+                const biCount=r.clinics.filter(c=>c.frequency==='Bi-weekly').length;
+                return(
+                  <div key={r.rm} style={{background:B.white,borderRadius:12,border:`1px solid ${B.line}`,overflow:'hidden',boxShadow:'0 1px 4px rgba(0,0,0,.05)'}}>
+                    {/* Card header */}
+                    <div style={{padding:'16px 18px',borderBottom:`1px solid ${B.line}`,display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:10}}>
+                      <div style={{display:'flex',alignItems:'center',gap:12}}>
+                        <div style={{width:38,height:38,borderRadius:'50%',background:B.brand+'18',display:'flex',alignItems:'center',justifyContent:'center',fontWeight:800,fontSize:14,color:B.brand,flexShrink:0}}>
+                          {r.rm.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase()}
+                        </div>
+                        <div>
+                          <div style={{fontWeight:700,fontSize:14,color:B.ink}}>{r.rm}</div>
+                          <div style={{fontSize:11,color:B.muted,marginTop:1}}>{r.city||'—'}</div>
+                        </div>
+                      </div>
+                      <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
+                        <span style={{background:B.redBg,color:B.red,padding:'3px 10px',borderRadius:6,fontSize:11,fontWeight:700}}>{dailyCount} Daily</span>
+                        <span style={{background:B.blueBg,color:B.blue2,padding:'3px 10px',borderRadius:6,fontSize:11,fontWeight:700}}>{biCount} Bi-weekly</span>
+                        {todayVisits.length>0&&(
+                          <span style={{background:B.greenBg,color:B.green,padding:'3px 10px',borderRadius:6,fontSize:11,fontWeight:700}}>{todayVisits.length} today</span>
+                        )}
+                        <button onClick={()=>shareWhatsApp(r)}
+                          style={{background:'#25D366',border:'none',color:'#fff',borderRadius:7,padding:'5px 12px',fontSize:11,fontWeight:700,cursor:'pointer',flexShrink:0}}>
+                          Share
+                        </button>
+                        <button onClick={()=>setExpandedRM(isExpanded?null:r.rm)}
+                          style={{background:'none',border:`1.5px solid ${B.line}`,color:B.muted,borderRadius:7,padding:'5px 10px',fontSize:11,cursor:'pointer',flexShrink:0}}>
+                          {isExpanded?'Hide':'View all'}
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Today's visits highlight */}
+                    {todayVisits.length>0&&(
+                      <div style={{padding:'12px 18px',background:'#F0F7FF',borderBottom:`1px solid ${B.line}`}}>
+                        <div style={{fontSize:11,fontWeight:700,color:B.blue2,textTransform:'uppercase',letterSpacing:'.5px',marginBottom:8}}>Today — {todayName}</div>
+                        <div style={{display:'flex',flexDirection:'column',gap:6}}>
+                          {todayVisits.map((c,ci)=>{
+                            const ss=clinicStatusStyle(c);
+                            return(
+                              <div key={ci} style={{display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}}>
+                                <StatusDot c={c}/>
+                                <span style={{fontSize:13,fontWeight:600,color:B.ink,flex:1,minWidth:120}}>{c.name}</span>
+                                <FreqBadge freq={c.frequency}/>
+                                <span style={{background:ss.bg,color:ss.col,padding:'2px 8px',borderRadius:5,fontSize:10,fontWeight:700}}>{ss.label}</span>
+                                {c.gl>0&&<span style={{fontSize:11,color:c.gl>=20?B.green:B.red,fontWeight:600}}>GL {c.gl}%</span>}
+                                {c.trend&&c.trend!=='New'&&<span style={{fontSize:11,color:c.trend==='Declining'?B.red:c.trend==='Improving'?B.green:B.muted}}>
+                                  {c.trend==='Declining'?'↓':c.trend==='Improving'?'↑':''} {c.trend}
+                                </span>}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                    {todayVisits.length===0&&(
+                      <div style={{padding:'10px 18px',background:'#FAFAFA',borderBottom:`1px solid ${B.line}`}}>
+                        <span style={{fontSize:12,color:B.muted}}>No visits scheduled for today ({todayName})</span>
+                      </div>
+                    )}
+
+                    {/* Full clinic list (expandable) */}
+                    {isExpanded&&(
+                      <div style={{padding:'0 0 4px'}}>
+                        <div style={{fontSize:11,fontWeight:700,color:B.muted,textTransform:'uppercase',letterSpacing:'.5px',padding:'12px 18px 6px'}}>All Clinics</div>
+                        {r.clinics.map((c,ci)=>{
+                          const ss=clinicStatusStyle(c);
+                          const visitDayLabels=(c.visitDays||[]).map(d=>RP_DAY_NAMES[d]).join(', ');
+                          const isToday=isVisitToday(c);
+                          return(
+                            <div key={ci} style={{
+                              padding:'10px 18px',
+                              borderBottom:ci<r.clinics.length-1?`1px solid ${B.line}`:'none',
+                              background:isToday?'#F8FBFF':'transparent',
+                              display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'
+                            }}>
+                              <StatusDot c={c}/>
+                              <span style={{fontSize:12,fontWeight:isToday?700:500,color:B.ink,flex:1,minWidth:120}}>{c.name}</span>
+                              <FreqBadge freq={c.frequency}/>
+                              <span style={{background:ss.bg,color:ss.col,padding:'2px 7px',borderRadius:5,fontSize:10,fontWeight:700}}>{ss.label}</span>
+                              {c.gl>0&&<span style={{fontSize:11,color:c.gl>=20?B.green:B.red,fontWeight:600}}>GL {c.gl}%</span>}
+                              <span style={{fontSize:11,color:B.muted,marginLeft:'auto'}}>{visitDayLabels}</span>
+                              {isToday&&<span style={{fontSize:10,background:B.brand,color:'#fff',padding:'1px 7px',borderRadius:4,fontWeight:700}}>TODAY</span>}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           )}
-          {tab==='action'&&(
-            <div className="tbl-wrap">
-              <table className="dt">
-                <thead><tr>
-                  <RPTh>Dormancy</RPTh><RPTh>Clinic</RPTh><RPTh>RM</RPTh><RPTh>CAM</RPTh><RPTh>City</RPTh>
-                  <RPTh right>Lifetime Leads</RPTh><RPTh>Last Lead Date</RPTh><RPTh right>Days Since</RPTh>
-                </tr></thead>
-                <tbody>
-                  {filtAction.length===0?<tr><td colSpan={8} style={{padding:'28px',textAlign:'center',color:B.muted,fontSize:13}}>No clinics match the current filters</td></tr>
-                  :filtAction.map((r,i)=>{const ds=dormancyStyle(r.dormancy_status||'');const days=parseInt(r.days_since_last_lead)||0;return(
-                    <tr key={i} style={{background:'#fff'}}>
-                      <RPTd><Badge label={r.dormancy_status} bg={ds.bg} c={ds.c}/></RPTd>
-                      <RPTd bold>{r.clinic}</RPTd>
-                      <RPTd>{r.rm}</RPTd>
-                      <RPTd>{r.cam}</RPTd>
-                      <RPTd muted>{r.city}</RPTd>
-                      <RPTd right>{r.lifetime_leads}</RPTd>
-                      <RPTd>{r.last_lead_date}</RPTd>
-                      <RPTd right color={days>14?B.red:days>7?B.amber:B.muted}><strong>{r.days_since_last_lead}</strong></RPTd>
-                    </tr>
-                  );})}
-                </tbody>
-              </table>
+        </>
+      )}
+
+      {/* ── CLINIC HEALTH VIEW ── */}
+      {view==='health'&&(
+        <>
+          <div style={{background:B.white,borderBottom:`1px solid ${B.line}`,padding:'0 16px'}}>
+            {!noData&&(
+              <div style={{display:'flex',gap:8,flexWrap:'wrap',padding:'12px 0 8px'}}>
+                {[
+                  {label:'Live',count:liveData.filter(r=>liveStatusStyle(r.Status).label==='LIVE').length,c:B.green,bg:B.greenBg},
+                  {label:'Ramping',count:liveData.filter(r=>liveStatusStyle(r.Status).label==='RAMPING').length,c:B.amber,bg:B.amberBg},
+                  {label:'Below Target',count:liveData.filter(r=>liveStatusStyle(r.Status).label==='BELOW TARGET').length,c:B.red,bg:B.redBg},
+                  {label:'Needs Action',count:actionData.length,c:B.amber,bg:B.amberBg},
+                  {label:'New',count:newData.length,c:B.blue2,bg:B.blueBg},
+                ].map(({label,count,c,bg})=>(
+                  <span key={label} style={{background:bg,color:c,padding:'4px 12px',borderRadius:20,fontSize:11,fontWeight:700}}>{count} {label}</span>
+                ))}
+              </div>
+            )}
+            <div style={{display:'flex',gap:0,overflowX:'auto'}}>
+              {healthTabs.map(([id,lbl])=>(
+                <button key={id} onClick={()=>setTab(id)}
+                  style={{padding:'10px 18px',border:'none',background:'none',fontSize:12,fontWeight:tab===id?700:500,
+                  color:tab===id?B.brand:B.muted,borderBottom:tab===id?`2.5px solid ${B.brand}`:'2.5px solid transparent',
+                  cursor:'pointer',borderRadius:0,whiteSpace:'nowrap',flexShrink:0}}>
+                  {lbl}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div style={{background:B.white,borderBottom:`1px solid ${B.line}`,padding:'10px 16px',display:'flex',gap:8,flexWrap:'wrap'}}>
+            <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search clinic or RM..."
+              style={{flex:1,minWidth:160,padding:'7px 12px',border:`1.5px solid ${B.line}`,borderRadius:8,fontSize:12,outline:'none'}}/>
+            <select value={cityF} onChange={e=>setCityF(e.target.value)}
+              style={{padding:'7px 10px',border:`1.5px solid ${B.line}`,borderRadius:8,fontSize:12,fontWeight:500,background:B.white,outline:'none',cursor:'pointer'}}>
+              {healthCities.map(c=><option key={c}>{c==='All'?'City: All':c}</option>)}
+            </select>
+          </div>
+
+          {noData?(
+            <div style={{textAlign:'center',padding:'72px 24px',color:B.muted}}>
+              <div style={{fontSize:14,fontWeight:700,color:B.ink,marginBottom:8}}>No clinic data loaded</div>
+              <div style={{fontSize:12,lineHeight:1.8}}>
+                Admin must configure the Apps Script URL in<br/>
+                <strong style={{color:B.ink}}>Admin → Route Sync → Clinic Health URL</strong><br/>
+                then click Sync.
+              </div>
+            </div>
+          ):(
+            <div style={{padding:'16px 20px'}}>
+              {tab==='live'&&(
+                <div className="tbl-wrap">
+                  <table className="dt">
+                    <thead><tr>
+                      <RPTh>Status</RPTh><RPTh>Clinic</RPTh><RPTh>RM</RPTh><RPTh>CAM</RPTh><RPTh>City</RPTh>
+                      <RPTh right>Avg/Day</RPTh><RPTh right>GL%</RPTh><RPTh>Trend</RPTh><RPTh right>Weeks</RPTh><RPTh right>Total Leads</RPTh>
+                    </tr></thead>
+                    <tbody>
+                      {filtLive.length===0?<tr><td colSpan={10} style={{padding:'28px',textAlign:'center',color:B.muted,fontSize:13}}>No clinics match filters</td></tr>
+                      :filtLive.map((r,i)=>{const ss=liveStatusStyle(r.Status||'');const ts=trendStyle(r.Trend||'');return(
+                        <tr key={i} style={{background:'#fff'}}>
+                          <RPTd><Badge label={ss.label} bg={ss.bg} c={ss.c}/></RPTd>
+                          <RPTd bold>{r.Clinic}</RPTd><RPTd>{r.RM}</RPTd><RPTd>{r.CAM}</RPTd><RPTd muted>{r.City}</RPTd>
+                          <RPTd right bold>{r['Avg leads/day']}</RPTd><RPTd right>{r['GL%']}</RPTd>
+                          <RPTd><span style={{color:ts.c,fontWeight:600,fontSize:12}}>{ts.prefix}{r.Trend||'—'}</span></RPTd>
+                          <RPTd right>{r.Weeks}</RPTd><RPTd right bold>{r['Total leads']}</RPTd>
+                        </tr>
+                      );})}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              {tab==='action'&&(
+                <div className="tbl-wrap">
+                  <table className="dt">
+                    <thead><tr>
+                      <RPTh>Dormancy</RPTh><RPTh>Clinic</RPTh><RPTh>RM</RPTh><RPTh>CAM</RPTh><RPTh>City</RPTh>
+                      <RPTh right>Lifetime Leads</RPTh><RPTh>Last Lead Date</RPTh><RPTh right>Days Since</RPTh>
+                    </tr></thead>
+                    <tbody>
+                      {filtAction.length===0?<tr><td colSpan={8} style={{padding:'28px',textAlign:'center',color:B.muted,fontSize:13}}>No clinics match filters</td></tr>
+                      :filtAction.map((r,i)=>{const ds=dormancyStyle(r.dormancy_status||'');const days=parseInt(r.days_since_last_lead)||0;return(
+                        <tr key={i} style={{background:'#fff'}}>
+                          <RPTd><Badge label={r.dormancy_status} bg={ds.bg} c={ds.c}/></RPTd>
+                          <RPTd bold>{r.clinic}</RPTd><RPTd>{r.rm}</RPTd><RPTd>{r.cam}</RPTd><RPTd muted>{r.city}</RPTd>
+                          <RPTd right>{r.lifetime_leads}</RPTd><RPTd>{r.last_lead_date}</RPTd>
+                          <RPTd right color={days>14?B.red:days>7?B.amber:B.muted}><strong>{r.days_since_last_lead}</strong></RPTd>
+                        </tr>
+                      );})}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              {tab==='new'&&(
+                <div className="tbl-wrap">
+                  <table className="dt">
+                    <thead><tr>
+                      <RPTh>Clinic</RPTh><RPTh>RM</RPTh><RPTh>CAM</RPTh><RPTh>City</RPTh>
+                      <RPTh>Go-live Date</RPTh><RPTh right>Days Live</RPTh><RPTh right>Total Leads</RPTh><RPTh right>Avg/Day</RPTh>
+                    </tr></thead>
+                    <tbody>
+                      {filtNew.length===0?<tr><td colSpan={8} style={{padding:'28px',textAlign:'center',color:B.muted,fontSize:13}}>No clinics match filters</td></tr>
+                      :filtNew.map((r,i)=>(
+                        <tr key={i} style={{background:'#fff'}}>
+                          <RPTd bold>{r.clinic}</RPTd><RPTd>{r.rm}</RPTd><RPTd>{r.cam}</RPTd><RPTd muted>{r.city}</RPTd>
+                          <RPTd>{r['Go-live date']}</RPTd><RPTd right bold>{r['Days since go-live']}</RPTd>
+                          <RPTd right>{r['Total leads']}</RPTd><RPTd right>{r['Avg leads/day']}</RPTd>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
           )}
-          {tab==='new'&&(
-            <div className="tbl-wrap">
-              <table className="dt">
-                <thead><tr>
-                  <RPTh>Clinic</RPTh><RPTh>RM</RPTh><RPTh>CAM</RPTh><RPTh>City</RPTh>
-                  <RPTh>Go-live Date</RPTh><RPTh right>Days Live</RPTh><RPTh right>Total Leads</RPTh><RPTh right>Avg/Day</RPTh>
-                </tr></thead>
-                <tbody>
-                  {filtNew.length===0?<tr><td colSpan={8} style={{padding:'28px',textAlign:'center',color:B.muted,fontSize:13}}>No clinics match the current filters</td></tr>
-                  :filtNew.map((r,i)=>(
-                    <tr key={i} style={{background:'#fff'}}>
-                      <RPTd bold>{r.clinic}</RPTd>
-                      <RPTd>{r.rm}</RPTd>
-                      <RPTd>{r.cam}</RPTd>
-                      <RPTd muted>{r.city}</RPTd>
-                      <RPTd>{r['Go-live date']}</RPTd>
-                      <RPTd right bold>{r['Days since go-live']}</RPTd>
-                      <RPTd right>{r['Total leads']}</RPTd>
-                      <RPTd right>{r['Avg leads/day']}</RPTd>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
+        </>
       )}
     </div>
   );
