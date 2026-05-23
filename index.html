@@ -610,8 +610,23 @@ async function syncFromGoogleSheet({silent=false}={}){
       }
     });
 
-    // Delete ALL Firestore target docs (fresh query — do not rely on cache)
+    // Capture existing manually-entered leads fields before wiping Firestore
     const liveSnap=await db.collection('targets').get();
+    const existingLeads={};
+    liveSnap.docs.forEach(d=>{
+      const dt=d.data();
+      if(dt.rm&&dt.tl){
+        const k=safeKey(`${dt.tl}|${dt.rm}`);
+        existingLeads[k]={
+          monthlyAchieved:dt.monthlyAchieved||0,
+          dailyLeads:dt.dailyLeads||0,
+          dailyAchieved:dt.dailyAchieved||0,
+          renewalTarget:dt.renewalTarget||0,
+          renewalAchieved:dt.renewalAchieved||0,
+        };
+      }
+    });
+    // Delete ALL Firestore target docs (fresh query — do not rely on cache)
     await Promise.all(liveSnap.docs.map(d=>d.ref.delete().catch(()=>{})));
     _cache.targets={};
 
@@ -645,11 +660,15 @@ async function syncFromGoogleSheet({silent=false}={}){
       };
       ALL_RMS.push(rmObj);
       const key=safeKey(`${sheetTL}|${displayRM}`);
+      const ex=existingLeads[key]||{};
       s[key]={tl:sheetTL,rm:displayRM,city:sheetCity,
         target:rmObj.target,netAchieved:rmObj.achieved,
-        monthlyLeads:rmObj.monthlyTgt,monthlyAchieved:rmObj.monthlyAchv,
-        dailyLeads:rmObj.dailyTgt,dailyAchieved:rmObj.dailyAchv,
-        renewalTarget:rmObj.renewalTgt,renewalAchieved:rmObj.renewalAchv,
+        monthlyLeads:rmObj.monthlyTgt||ex.monthlyLeads||0,
+        monthlyAchieved:rmObj.monthlyAchv||ex.monthlyAchieved||0,
+        dailyLeads:rmObj.dailyTgt||ex.dailyLeads||0,
+        dailyAchieved:rmObj.dailyAchv||ex.dailyAchieved||0,
+        renewalTarget:rmObj.renewalTgt||ex.renewalTarget||0,
+        renewalAchieved:rmObj.renewalAchv||ex.renewalAchieved||0,
         updatedAt:now};
     });
 
