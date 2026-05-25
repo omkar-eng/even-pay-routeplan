@@ -211,6 +211,7 @@ async function fetchRoutePlanData(url){
   _cache.route_plan_data=data;
   await db.collection('config').doc('route_plan_data').set(data).catch(()=>{});
   await saveRouteSettings({routePlanScriptUrl:url,routePlanLastFetched:data.lastFetched});
+  enrichRMsWithLeads();
   window.dispatchEvent(new Event('routePlanUpdated'));
   await detectPlanChangesAndNotify(oldData,data);
   return data;
@@ -816,6 +817,24 @@ function applyStoreToRMs(){
   });
   ZONE.target  =ZONE.tls.reduce((s,t)=>s+t.target,0);
   ZONE.achieved=ZONE.tls.reduce((s,t)=>s+t.achieved,0);
+  enrichRMsWithLeads();
+}
+
+function enrichRMsWithLeads(){
+  const rpData=_cache.route_plan_data;
+  if(!rpData||(rpData.live_status||[]).length===0)return;
+  const daysElapsed=new Date().getDate();
+  const plan=buildRMPlan(rpData);
+  plan.forEach(rp=>{
+    const rm=ALL_RMS.find(r=>r.rm.toLowerCase()===rp.rm.toLowerCase());
+    if(!rm)return;
+    const totalAvg=rp.clinics.reduce((s,c)=>s+(parseFloat(c.avgLeads)||0),0);
+    rm.monthlyAchv=Math.round(totalAvg*daysElapsed);
+  });
+  ZONE.tls.forEach(tl=>{
+    const rms=ALL_RMS.filter(r=>r.tl.toLowerCase()===tl.name.toLowerCase());
+    tl.monthlyAchv=rms.reduce((s,r)=>s+(r.monthlyAchv||0),0);
+  });
 }
 
 // ── HELPERS ────────────────────────────────────────────────────────────────
