@@ -589,7 +589,7 @@ async function syncFromGoogleSheet({silent=false}={}){
     _payDateKey=detectPayDateKey(paymentRows);
     const rawPayRows=paymentRows.map(p=>({
       date:_payDateKey?String(p[_payDateKey]||'').trim():'',
-      rm:rawToTarget[(p['Rm Name']||'').trim().toLowerCase()]||(p['Rm Name']||'').trim().toLowerCase(),
+      rm:(()=>{const raw=(p['Rm Name']||'').trim().toLowerCase();const matched=rawToTarget[raw];if(matched){const disp=rmDisplayName[matched];return disp?disp.toLowerCase():matched;}return raw;})(),
       tl:(p['ATL/TL Name']||'').trim().toLowerCase(),
       amount:parseFloat(p.Amount)||0
     })).filter(r=>r.amount>0);
