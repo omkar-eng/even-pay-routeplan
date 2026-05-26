@@ -2406,7 +2406,96 @@ function AllTeamsPanel(){
   const[customTo,setCustomTo]=useState('');
   const[singleDate,setSingleDate]=useState('');
   const[,_forceUpdate]=useState(0);
+  const[rmSearch,setRmSearch]=useState('');
+  const[selectedRM,setSelectedRM]=useState(null);
+  const[showSuggestions,setShowSuggestions]=useState(false);
   useEffect(()=>{const h=()=>_forceUpdate(v=>v+1);window.addEventListener('rmDataUpdated',h);return()=>window.removeEventListener('rmDataUpdated',h);},[]);
+
+  const rmSuggestions=rmSearch.trim().length>0
+    ?ALL_RMS.filter(r=>r.rm.toLowerCase().includes(rmSearch.toLowerCase())).slice(0,8)
+    :[];
+  const selectRM=(r)=>{setSelectedRM(r);setRmSearch(r.rm);setShowSuggestions(false);};
+  const clearRM=()=>{setSelectedRM(null);setRmSearch('');setShowSuggestions(false);};
+
+  const RMPaymentsPanel=({rm})=>{
+    const[payRange,setPayRange]=useState('All Time');
+    const[paySingle,setPaySingle]=useState('');
+    const[payFrom,setPayFrom]=useState('');
+    const[payTo,setPayTo]=useState('');
+    const rmLo=rm.rm.toLowerCase();
+    let rows=(_cache.payment_rows||[]).filter(r=>r.rm===rmLo);
+    if(payRange!=='All Time'){
+      if(payRange==='Single Date'){
+        if(paySingle){const sd=parseDateInput(paySingle);const se=new Date(sd.getFullYear(),sd.getMonth(),sd.getDate(),23,59,59,999);rows=rows.filter(r=>{const d=parsePayDate(r.date);return d&&d>=sd&&d<=se;});}
+      } else {
+        const range=payRange==='Custom'?(payFrom&&payTo?{from:parseDateInput(payFrom),to:parseDateInput(payTo)}:null):getDateRangeFromLabel(payRange);
+        if(range){const te=new Date(range.to.getFullYear(),range.to.getMonth(),range.to.getDate(),23,59,59,999);rows=rows.filter(r=>{const d=parsePayDate(r.date);return d&&d>=range.from&&d<=te;});}
+      }
+    }
+    rows=[...rows].sort((a,b)=>(parsePayDate(b.date)||0)-(parsePayDate(a.date)||0));
+    const total=rows.reduce((s,r)=>s+r.amount,0);
+    const allRows=(_cache.payment_rows||[]).filter(r=>r.rm===rmLo);
+    return(
+      <div style={{background:B.white,borderRadius:16,border:`2px solid ${B.brand}`,boxShadow:'0 4px 24px rgba(35,80,255,.12)',marginBottom:24,overflow:'hidden'}}>
+        <div style={{background:`linear-gradient(135deg,${B.brandDark},${B.brand})`,padding:'16px 20px',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+          <div>
+            <div style={{color:'rgba(255,255,255,.7)',fontSize:11,fontWeight:600,textTransform:'uppercase',letterSpacing:'.5px'}}>RM Payments</div>
+            <div style={{color:'#fff',fontSize:18,fontWeight:800,marginTop:2}}>{rm.rm}</div>
+            <div style={{color:'rgba(255,255,255,.6)',fontSize:12,marginTop:1}}>{rm.tl} · {rm.city} · {allRows.length} payment{allRows.length!==1?'s':''} total</div>
+          </div>
+          <div style={{display:'flex',alignItems:'center',gap:12}}>
+            <div style={{textAlign:'right'}}>
+              <div style={{color:'rgba(255,255,255,.7)',fontSize:11}}>Achieved</div>
+              <div style={{color:'#fff',fontSize:20,fontWeight:800}}>{fmtN(rm.achieved)}</div>
+              <div style={{color:'rgba(255,255,255,.6)',fontSize:11}}>{pct(rm.achieved,rm.target)}% of {fmtN(rm.target)}</div>
+            </div>
+            <button onClick={clearRM} style={{background:'rgba(255,255,255,.2)',border:'none',color:'#fff',borderRadius:8,padding:'8px 14px',fontSize:12,fontWeight:700,cursor:'pointer'}}>✕ Close</button>
+          </div>
+        </div>
+        <div style={{padding:'14px 20px',borderBottom:`1px solid ${B.line}`,display:'flex',gap:6,flexWrap:'wrap',alignItems:'center'}}>
+          {['All Time','This Week','This Month','Last Month','Custom'].map(o=>(
+            <button key={o} onClick={()=>setPayRange(o)} style={{padding:'5px 12px',borderRadius:16,border:`1.5px solid ${payRange===o?B.brand:B.line}`,background:payRange===o?B.brand:B.white,color:payRange===o?'#fff':B.muted,fontSize:11,fontWeight:600,cursor:'pointer'}}>{o}</button>
+          ))}
+          {payRange==='Custom'&&<>
+            <input type="date" value={payFrom} onChange={e=>setPayFrom(e.target.value)} style={{padding:'5px 8px',border:`1.5px solid ${B.line}`,borderRadius:8,fontSize:12,outline:'none'}}/>
+            <span style={{color:B.muted,fontSize:12}}>to</span>
+            <input type="date" value={payTo} onChange={e=>setPayTo(e.target.value)} style={{padding:'5px 8px',border:`1.5px solid ${B.line}`,borderRadius:8,fontSize:12,outline:'none'}}/>
+          </>}
+          <div style={{marginLeft:'auto',background:B.brandLight,borderRadius:10,padding:'6px 14px',fontSize:13,fontWeight:700,color:B.brand}}>{rows.length} rows · {fmtN(total)}</div>
+        </div>
+        {rows.length===0?(
+          <div style={{textAlign:'center',padding:'32px',color:B.muted,fontSize:13}}>{allRows.length===0?'No payments found for this RM. Run a sync to load payment data.':'No payments in this date range.'}</div>
+        ):(
+          <div style={{overflowX:'auto'}}>
+            <table style={{width:'100%',borderCollapse:'collapse',fontSize:13}}>
+              <thead>
+                <tr style={{background:'#F8FAFC'}}>
+                  <th style={{padding:'10px 16px',textAlign:'left',fontSize:11,fontWeight:700,color:B.muted,textTransform:'uppercase',letterSpacing:'.5px',borderBottom:`1px solid ${B.line}`}}>#</th>
+                  <th style={{padding:'10px 16px',textAlign:'left',fontSize:11,fontWeight:700,color:B.muted,textTransform:'uppercase',letterSpacing:'.5px',borderBottom:`1px solid ${B.line}`}}>Date</th>
+                  <th style={{padding:'10px 16px',textAlign:'right',fontSize:11,fontWeight:700,color:B.muted,textTransform:'uppercase',letterSpacing:'.5px',borderBottom:`1px solid ${B.line}`}}>Amount</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((row,i)=>(
+                  <tr key={i} style={{background:i%2===0?B.white:'#FAFBFF'}} onMouseEnter={e=>e.currentTarget.style.background=B.brandLight} onMouseLeave={e=>e.currentTarget.style.background=i%2===0?B.white:'#FAFBFF'}>
+                    <td style={{padding:'10px 16px',color:B.muted,fontWeight:600,width:40}}>{i+1}</td>
+                    <td style={{padding:'10px 16px',color:B.ink}}>{row.date||'—'}</td>
+                    <td style={{padding:'10px 16px',textAlign:'right',fontVariantNumeric:'tabular-nums',fontWeight:700,color:B.green}}>{fmtN(row.amount)}</td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr style={{background:B.navy}}>
+                  <td colSpan={2} style={{padding:'11px 16px',color:'rgba(255,255,255,.8)',fontWeight:700,fontSize:13}}>Total — {rows.length} payment{rows.length!==1?'s':''}</td>
+                  <td style={{padding:'11px 16px',textAlign:'right',color:'#fff',fontWeight:800,fontSize:14,fontVariantNumeric:'tabular-nums'}}>{fmtN(total)}</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        )}
+      </div>
+    );
+  };
   const isMobile=useIsMobile();
   const filtData=(()=>{
     if(dateRange==='All Time')return null;
@@ -2490,6 +2579,25 @@ function AllTeamsPanel(){
           <div style={{fontSize:24,fontWeight:800,color:B.navy}}>All Teams</div>
           <div style={{color:B.muted,fontSize:13,marginTop:3}}>{new Date().toLocaleDateString('en-IN',{weekday:'long',day:'numeric',month:'long',year:'numeric'})}</div>
         </div>
+        <div style={{position:'relative',minWidth:240}}>
+          <input value={rmSearch} onChange={e=>{setRmSearch(e.target.value);setShowSuggestions(true);if(!e.target.value)clearRM();}}
+            onFocus={()=>setShowSuggestions(true)}
+            placeholder="Search RM payments…"
+            style={{width:'100%',padding:'9px 36px 9px 14px',border:`1.5px solid ${selectedRM?B.brand:B.line}`,borderRadius:10,fontSize:13,outline:'none',background:B.white,color:B.ink}}/>
+          {rmSearch&&<button onClick={clearRM} style={{position:'absolute',right:10,top:'50%',transform:'translateY(-50%)',background:'none',border:'none',cursor:'pointer',color:B.muted,fontSize:16,lineHeight:1}}>✕</button>}
+          {showSuggestions&&rmSuggestions.length>0&&<>
+            <div onClick={()=>setShowSuggestions(false)} style={{position:'fixed',inset:0,zIndex:199}}/>
+            <div style={{position:'absolute',top:'110%',left:0,right:0,background:B.white,borderRadius:10,boxShadow:'0 8px 32px rgba(0,0,0,.15)',zIndex:200,overflow:'hidden',border:`1px solid ${B.line}`}}>
+              {rmSuggestions.map(r=>(
+                <div key={r.rm} onClick={()=>selectRM(r)} style={{padding:'10px 14px',cursor:'pointer',borderBottom:`1px solid ${B.line}`,display:'flex',justifyContent:'space-between',alignItems:'center'}}
+                  onMouseEnter={e=>e.currentTarget.style.background=B.brandLight} onMouseLeave={e=>e.currentTarget.style.background=B.white}>
+                  <div><div style={{fontWeight:600,fontSize:13,color:B.ink}}>{r.rm}</div><div style={{fontSize:11,color:B.muted}}>{r.tl} · {r.city}</div></div>
+                  <div style={{fontSize:12,fontWeight:700,color:B.brand}}>{fmtN(r.achieved)}</div>
+                </div>
+              ))}
+            </div>
+          </>}
+        </div>
         <div style={{display:'flex',gap:10,alignItems:'center'}}>
           <div style={{display:'flex',gap:6}}>
             {['All','Pune','Mumbai','Nagpur'].map(c=>(
@@ -2516,6 +2624,7 @@ function AllTeamsPanel(){
       {filtData&&(_cache.payment_rows||[]).length>0&&<div style={{background:B.brandLight,border:`1px solid ${B.brand}`,borderRadius:10,padding:'8px 14px',marginBottom:16,fontSize:12,color:B.brand,fontWeight:600}}>
         Showing payments for: <strong>{dateRange==='Custom'?`${customFrom} to ${customTo}`:dateRange}</strong> — Total: <strong>{fmt(filtData.total)}</strong> across {filtData.rows.length} payment{filtData.rows.length!==1?'s':''}
       </div>}
+      {selectedRM&&<RMPaymentsPanel rm={selectedRM}/>}
       <div style={{display:'flex',gap:16,marginBottom:24}}>
         <StatCard title="Zone Target" value={fmt(totTarget)} icon="🎯"/>
         <StatCard title={filtData?`Achieved (${dateRange})`:'Zone Achieved'} value={fmt(totAchv)} sub={`${zp}% of target`} icon="💰" highlight/>
