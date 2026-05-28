@@ -2409,6 +2409,8 @@ function AllTeamsPanel(){
   const[rmSearch,setRmSearch]=useState('');
   const[selectedRM,setSelectedRM]=useState(null);
   const[showSuggestions,setShowSuggestions]=useState(false);
+  const[tableView,setTableView]=useState('tl'); // 'tl' | 'rm'
+  const[rmSort,setRmSort]=useState('high'); // 'high' | 'low'
   useEffect(()=>{const h=()=>_forceUpdate(v=>v+1);window.addEventListener('rmDataUpdated',h);return()=>window.removeEventListener('rmDataUpdated',h);},[]);
 
   const rmSuggestions=rmSearch.trim().length>0
@@ -2632,11 +2634,77 @@ function AllTeamsPanel(){
         <StatCard title="Active RMs" value={String(totRMs)} icon="👤"/>
       </div>
       <div style={{background:B.white,borderRadius:16,boxShadow:'0 2px 12px rgba(0,0,0,.06)',overflow:'hidden',border:`1px solid ${B.line}`}}>
-        <div style={{padding:'16px 20px',display:'flex',justifyContent:'space-between',alignItems:'center',borderBottom:`1px solid ${B.line}`}}>
-          <div style={{fontWeight:700,fontSize:15,color:B.navy}}>Team Leaders — {dateRange}</div>
-          <button onClick={()=>downloadCSV(['TL','City','RMs','Target','Achieved','Target %'],tls.map(t=>[t.name,t.city,t.rms,t.target,t.achieved,pct(t.achieved,t.target)+'%']),'all_teams.csv')} style={{background:B.navy,color:'#fff',border:'none',borderRadius:10,padding:'9px 18px',fontSize:12,fontWeight:700,cursor:'pointer'}}>Download CSV</button>
+        <div style={{padding:'14px 20px',display:'flex',justifyContent:'space-between',alignItems:'center',borderBottom:`1px solid ${B.line}`,flexWrap:'wrap',gap:10}}>
+          <div style={{display:'flex',gap:4}}>
+            {[['tl','By TL'],['rm','All RMs']].map(([id,lbl])=>(
+              <button key={id} onClick={()=>setTableView(id)} style={{padding:'7px 16px',borderRadius:8,border:`1.5px solid ${tableView===id?B.brand:B.line}`,background:tableView===id?B.brand:B.white,color:tableView===id?'#fff':B.muted,fontSize:12,fontWeight:600,cursor:'pointer'}}>{lbl}</button>
+            ))}
+            {tableView==='rm'&&<div style={{display:'flex',gap:4,marginLeft:8}}>
+              {[['high','↓ Highest'],['low','↑ Lowest']].map(([id,lbl])=>(
+                <button key={id} onClick={()=>setRmSort(id)} style={{padding:'7px 14px',borderRadius:8,border:`1.5px solid ${rmSort===id?B.brand:B.line}`,background:rmSort===id?B.brandLight:B.white,color:rmSort===id?B.brand:B.muted,fontSize:12,fontWeight:600,cursor:'pointer'}}>{lbl}</button>
+              ))}
+            </div>}
+          </div>
+          <button onClick={()=>tableView==='tl'?downloadCSV(['TL','City','RMs','Target','Achieved','Target %'],tls.map(t=>[t.name,t.city,t.rms,t.target,t.achieved,pct(t.achieved,t.target)+'%']),'all_teams.csv'):downloadCSV(['RM','TL','City','Target','Achieved','Target %'],ALL_RMS.filter(r=>cityF==='All'||r.city===cityF).map(r=>[r.rm,r.tl,r.city,r.target,r.achieved,pct(r.achieved,r.target)+'%']),'all_rms.csv')} style={{background:B.navy,color:'#fff',border:'none',borderRadius:10,padding:'9px 18px',fontSize:12,fontWeight:700,cursor:'pointer'}}>Download CSV</button>
         </div>
-        <div style={{overflowX:'auto'}}>
+        {tableView==='rm'&&(()=>{
+          const allRMs=ALL_RMS.filter(r=>cityF==='All'||r.city===cityF);
+          const sorted=[...allRMs].sort((a,b)=>{
+            const pa=pct(filtData?filtData.rmPayments[a.rm.toLowerCase()]||0:a.achieved,a.target);
+            const pb=pct(filtData?filtData.rmPayments[b.rm.toLowerCase()]||0:b.achieved,b.target);
+            return rmSort==='high'?pb-pa:pa-pb;
+          });
+          const totR=sorted.reduce((s,r)=>s+(filtData?filtData.rmPayments[r.rm.toLowerCase()]||0:r.achieved),0);
+          const totT=sorted.reduce((s,r)=>s+r.target,0);
+          return(
+            <div style={{overflowX:'auto'}}>
+              <table style={{width:'100%',borderCollapse:'collapse',fontSize:13,minWidth:900}}>
+                <thead><tr>
+                  <th style={th}>No</th><th style={th}>RM</th><th style={th}>TL</th><th style={th}>City</th>
+                  <th style={thR}>Target (₹)</th><th style={thR}>Achieved (₹)</th><th style={thR}>Target %</th>
+                  <th style={thR}>Mthly Tgt</th><th style={thR}>Mthly Achv</th><th style={thR}>Renewal Tgt</th><th style={thR}>Renewal Achv</th>
+                  <th style={th}>Status</th>
+                </tr></thead>
+                <tbody>
+                  {sorted.map((r,i)=>{
+                    const rma=filtData?filtData.rmPayments[r.rm.toLowerCase()]||0:r.achieved;
+                    const rp=pct(rma,r.target);
+                    const rc=rp>=80?B.green:rp>=60?B.amber:B.red;
+                    const rb=rp>=80?B.greenBg:rp>=60?B.amberBg:B.redBg;
+                    const rl=rp>=80?'On Track':rp>=60?'At Risk':'Behind';
+                    return <tr key={r.rm} style={{background:B.white}} onMouseEnter={e=>e.currentTarget.style.background='#F8FAFC'} onMouseLeave={e=>e.currentTarget.style.background=B.white}>
+                      <td style={{...td,color:B.muted,fontWeight:600,width:44}}>{i+1}</td>
+                      <td style={td}>
+                        <div style={{display:'flex',alignItems:'center',gap:8}}>
+                          <div style={{width:30,height:30,background:B.brandLight,borderRadius:7,display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,fontWeight:800,color:B.brand,flexShrink:0}}>{r.rm.split(' ').map(n=>n[0]).join('').slice(0,2).toUpperCase()}</div>
+                          <span style={{fontWeight:700,color:B.ink}}>{r.rm}</span>
+                        </div>
+                      </td>
+                      <td style={{...td,color:B.muted,fontSize:12}}>{r.tl}</td>
+                      <td style={td}>{r.city}</td>
+                      <td style={tdR}>{Number(r.target).toLocaleString('en-IN')}</td>
+                      <td style={tdR}>{Number(rma).toLocaleString('en-IN')}</td>
+                      <td style={tdR}><span style={{color:pClr(rp),fontWeight:700}}>{rp}%</span></td>
+                      <td style={tdR}>{r.monthlyTgt}</td>
+                      <td style={tdR}>{r.monthlyAchv}</td>
+                      <td style={tdR}>{r.renewalTgt}</td>
+                      <td style={tdR}>{r.renewalAchv}</td>
+                      <td style={td}><span style={{background:rb,color:rc,padding:'4px 12px',borderRadius:20,fontSize:11,fontWeight:700}}>{rl}</span></td>
+                    </tr>;
+                  })}
+                </tbody>
+                <tfoot><tr style={{background:B.navy}}>
+                  <td colSpan={4} style={{padding:'12px 14px',color:'#fff',fontWeight:800,fontSize:13}}>TOTALS — {sorted.length} RMs</td>
+                  <td style={tfC}>{Number(totT).toLocaleString('en-IN')}</td>
+                  <td style={tfC}>{Number(totR).toLocaleString('en-IN')}</td>
+                  <td style={tfC}>{pct(totR,totT)}%</td>
+                  <td colSpan={5} style={{padding:'12px'}}></td>
+                </tr></tfoot>
+              </table>
+            </div>
+          );
+        })()}
+        <div style={{overflowX:'auto',display:tableView==='tl'?'block':'none'}}>
           <table style={{width:'100%',borderCollapse:'collapse',fontSize:13,minWidth:900}}>
             <thead>
               <tr>
