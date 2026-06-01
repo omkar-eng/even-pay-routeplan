@@ -4605,7 +4605,7 @@ function ISPaymentsView(){
   const isList=Object.values(isMap).sort((a,b)=>b.amount-a.amount);
   const grandTotal=isList.reduce((s,r)=>s+r.amount,0);
 
-  const fmt=n=>'₹'+(n/100000).toFixed(1)+'L';
+  const fmt=n=>'₹'+Number(n).toLocaleString('en-IN');
 
   return(
     <div style={{background:B.bg,minHeight:'100vh',paddingBottom:isMobile?90:20,padding:isMobile?'0 0 90px':20}}>
