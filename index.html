@@ -3508,7 +3508,7 @@ function UsersTab(){
 
   const tls=ZONE.tls.map(t=>t.name);
   const rmNames=ALL_RMS.map(r=>r.rm).sort();
-  const ROLES=[{v:'rm',l:'RM — Relationship Manager'},{v:'tl',l:'TL — Team Leader'},{v:'zonal',l:'Zonal Head'},{v:'admin',l:'Admin'}];
+  const ROLES=[{v:'rm',l:'RM — Relationship Manager'},{v:'tl',l:'TL — Team Leader'},{v:'is',l:'IS — Inside Sales'},{v:'zonal',l:'Zonal Head'},{v:'admin',l:'Admin'}];
 
   useEffect(()=>{
     db.collection('users').get()
@@ -3531,6 +3531,8 @@ function UsersTab(){
       const userData={name:newUser.name.trim(),email:newUser.email.trim().toLowerCase(),role:newUser.role,
         ...(newUser.role==='rm'||newUser.role==='tl'?{tl:newUser.tl,city:newUser.city}:{}),
         mustChangePassword:true,createdAt:new Date().toISOString()};
+      // IS names stored lowercase to match payment_rows
+      if(newUser.role==='is')userData.name=newUser.name.trim().toLowerCase();
       await db.collection('users').doc(uid).set(userData);
       await secAuth.signOut();
       await secondary.delete();
@@ -3681,7 +3683,9 @@ function UsersTab(){
               ? selEl(newUser.name,v=>setNewUser({...newUser,name:v}),[{v:'',l:'Pick RM from list…'},...rmNames])
               : newUser.role==='tl'
                 ? selEl(newUser.name,v=>setNewUser({...newUser,name:v}),[{v:'',l:'Pick TL from list…'},...tls])
-                : inp(newUser.name,v=>setNewUser({...newUser,name:v}),'e.g. Omkar')}
+                : newUser.role==='is'
+                  ? selEl(newUser.name,v=>setNewUser({...newUser,name:v}),[{v:'',l:'Pick IS from list…'},...[...new Set((_cache.payment_rows||[]).map(r=>r.is).filter(Boolean))].sort().map(n=>({v:n,l:toTitleCase(n)}))])
+                  : inp(newUser.name,v=>setNewUser({...newUser,name:v}),'e.g. Omkar')}
           </div>
           <div>
             <div style={{fontSize:11,color:B.muted,marginBottom:4,fontWeight:600,textTransform:'uppercase'}}>Work Email *</div>
@@ -4815,6 +4819,78 @@ function FullAccessView({user,onLogout}){
 }
 
 // ── APP ROOT ───────────────────────────────────────────────────────────────
+// ── IS USER VIEW ───────────────────────────────────────────────────────────
+function ISUserView({user,onLogout}){
+  const isMobile=useIsMobile();
+  const[dataVer,setDataVer]=useState(0);
+  useEffect(()=>{
+    const h=()=>setDataVer(v=>v+1);
+    window.addEventListener('rmDataUpdated',h);
+    return()=>window.removeEventListener('rmDataUpdated',h);
+  },[]);
+
+  const myRows=(_cache.payment_rows||[])
+    .filter(r=>r.is&&r.is.toLowerCase()===(user.name||'').toLowerCase())
+    .map(r=>{
+      const d=parsePayDate(r.date);
+      return{...r,_d:d,_ts:d?d.getTime():0};
+    })
+    .sort((a,b)=>b._ts-a._ts);
+
+  const total=myRows.reduce((s,r)=>s+r.amount,0);
+  const fmtDate=d=>d?d.toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'}):'—';
+
+  return(
+    <div style={{background:B.bg,minHeight:'100vh',maxWidth:600,margin:'0 auto',paddingBottom:20}}>
+      {/* Header */}
+      <div style={{background:'linear-gradient(135deg,#1E1B4B,#4338CA)',padding:'28px 18px 20px'}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
+          <div>
+            <div style={{color:'rgba(255,255,255,.65)',fontSize:12,marginBottom:4}}>Inside Sales</div>
+            <div style={{color:'#fff',fontSize:22,fontWeight:800}}>{toTitleCase(user.name)}</div>
+            <div style={{color:'rgba(255,255,255,.7)',fontSize:13,marginTop:6}}>
+              ₹{total.toLocaleString('en-IN')} · {myRows.length} payment{myRows.length!==1?'s':''}
+            </div>
+          </div>
+          <button onClick={onLogout} style={{background:'rgba(255,255,255,.15)',border:'none',color:'rgba(255,255,255,.8)',borderRadius:8,padding:'6px 14px',fontSize:12,cursor:'pointer',fontWeight:600}}>Log out</button>
+        </div>
+      </div>
+
+      <div style={{padding:'16px 14px'}}>
+        {myRows.length===0
+          ?<Card><div style={{fontSize:13,color:B.muted,textAlign:'center',padding:'16px 0'}}>No payments found for your name yet.</div></Card>
+          :<Card style={{padding:0,overflow:'hidden'}}>
+            <table style={{width:'100%',borderCollapse:'collapse'}}>
+              <thead>
+                <tr style={{background:B.bg}}>
+                  <th style={{padding:'10px 14px',textAlign:'left',fontSize:11,color:B.muted,fontWeight:700,textTransform:'uppercase',letterSpacing:'.4px'}}>Date</th>
+                  <th style={{padding:'10px 14px',textAlign:'left',fontSize:11,color:B.muted,fontWeight:700,textTransform:'uppercase',letterSpacing:'.4px'}}>RM</th>
+                  <th style={{padding:'10px 14px',textAlign:'right',fontSize:11,color:B.muted,fontWeight:700,textTransform:'uppercase',letterSpacing:'.4px'}}>Amount</th>
+                </tr>
+              </thead>
+              <tbody>
+                {myRows.map((r,i)=>(
+                  <tr key={i} style={{borderTop:`1px solid ${B.line}`}}>
+                    <td style={{padding:'12px 14px',fontSize:13,color:B.ink}}>{fmtDate(r._d)}</td>
+                    <td style={{padding:'12px 14px',fontSize:13,color:B.ink,fontWeight:600}}>{toTitleCase(r.rm)}</td>
+                    <td style={{padding:'12px 14px',textAlign:'right',fontSize:13,fontWeight:700,color:B.brand}}>₹{Number(r.amount).toLocaleString('en-IN')}</td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr style={{borderTop:`2px solid ${B.line}`,background:B.bg}}>
+                  <td colSpan={2} style={{padding:'10px 14px',fontSize:12,fontWeight:700,color:B.ink}}>Total</td>
+                  <td style={{padding:'10px 14px',textAlign:'right',fontSize:14,fontWeight:800,color:B.brand}}>₹{total.toLocaleString('en-IN')}</td>
+                </tr>
+              </tfoot>
+            </table>
+          </Card>
+        }
+      </div>
+    </div>
+  );
+}
+
 function App(){
   const[user,setUser]=useState(null);const[loading,setLoading]=useState(true);const[initMsg,setInitMsg]=useState('Starting up…');
   useEffect(()=>{
@@ -4847,6 +4923,7 @@ function App(){
   const role=user.role;
   if(role==='zonal'||role==='admin')return <FullAccessView user={user} onLogout={handleLogout}/>;
   if(role==='tl')return <TLView user={user} onLogout={handleLogout}/>;
+  if(role==='is')return <ISUserView user={user} onLogout={handleLogout}/>;
   return <RMView user={user} onLogout={handleLogout}/>;
 }
 
