@@ -339,6 +339,7 @@ async function initFirestore(){
       if(d.id==='tl_achieved')_cache.tl_achieved=d.data()||{};
       if(d.id==='sync_settings')_cache.sync_settings=d.data()||{};
       if(d.id==='payment_rows')_cache.payment_rows=d.data()?.rows||[];
+      if(d.id==='pending_payments')_pendingPayments=d.data()?.rows||[];
       if(d.id==='monthly_reset')_cache.monthly_reset=d.data()||{};
       if(d.id==='route_plan_data'){const rpd=d.data()||{};_cache.route_plan_data={live_status:[],needs_action:[],new_onboarded:[],disabled:[],lastFetched:null,...rpd};}
     });
@@ -346,6 +347,7 @@ async function initFirestore(){
   await loadClinicNotes();
   _cache.loaded=true;
   applyStoreToRMs();
+  mergePendingIntoPaymentRows();
   await checkAndResetMonthlyTargets();
   setupAutoSync();
   setupSheetPushListener();
@@ -714,6 +716,7 @@ async function syncFromGoogleSheet({silent=false}={}){
       db.collection('config').doc('sync_settings').set(_cache.sync_settings).catch(()=>{}),
       db.collection('config').doc('payment_rows').set({rows:rawPayRows}).catch(()=>{}),
     ]);
+    mergePendingIntoPaymentRows();
     if(silent){
       applyStoreToRMs();
       window.dispatchEvent(new Event('rmDataUpdated'));
@@ -737,6 +740,56 @@ async function pushPaymentToSheet(date,tl,city,rm,is,amount){
       body:JSON.stringify({action:'addPayment',date,tl,city,rm,is,amount})
     });
   }catch(e){console.warn('pushPaymentToSheet:',e);}
+}
+
+let _pendingPayments=[]; // app-entered payments not yet confirmed in sheet
+
+function formatSheetDate(iso){const[y,m,d]=iso.split('-');return`${d}/${m}/${y}`;}
+
+async function loadPendingFromFirestore(){
+  try{
+    const doc=await db.collection('config').doc('pending_payments').get();
+    _pendingPayments=(doc.exists?doc.data()?.rows:[])||[];
+  }catch(e){_pendingPayments=[];}
+}
+
+async function savePendingToFirestore(){
+  await db.collection('config').doc('pending_payments').set({rows:_pendingPayments}).catch(()=>{});
+}
+
+function mergePendingIntoPaymentRows(){
+  const existing=new Set((_cache.payment_rows||[]).map(r=>r._pid).filter(Boolean));
+  const toAdd=_pendingPayments.filter(r=>!existing.has(r._pid));
+  if(toAdd.length)_cache.payment_rows=[...(_cache.payment_rows||[]),...toAdd];
+}
+
+async function submitPaymentEntry({rm,tl,city,date,amount}){
+  const row={date:formatSheetDate(date),rm:rm.toLowerCase(),tl:tl.toLowerCase(),amount,_pid:Date.now(),pending:true};
+  // 1. Save to local pending + Firestore immediately so it shows in app
+  _pendingPayments=[..._pendingPayments,row];
+  _cache.payment_rows=[...(_cache.payment_rows||[]),row];
+  await savePendingToFirestore();
+  window.dispatchEvent(new Event('rmDataUpdated'));
+  // 2. Try writing to sheet via GAS
+  try{
+    const resp=await fetch(SHEET_SCRIPT_URL,{
+      method:'POST',
+      headers:{'Content-Type':'text/plain'},
+      body:JSON.stringify({action:'addPayment',date:row.date,rm_name:rm,tl_name:tl,city,amount})
+    });
+    const j=await resp.json().catch(()=>({}));
+    if(j.status==='ok'){
+      // 3. Re-sync from sheet to get the authoritative data including the new row
+      _pendingPayments=_pendingPayments.filter(r=>r._pid!==row._pid);
+      await savePendingToFirestore();
+      await syncFromGoogleSheet({silent:true});
+      return{ok:true,sheetOk:true};
+    } else {
+      return{ok:true,sheetOk:false,msg:j.message||'GAS write returned error'};
+    }
+  }catch(e){
+    return{ok:true,sheetOk:false,msg:e.message};
+  }
 }
 
 // ── RESPONSIVE HOOK ────────────────────────────────────────────────────────
@@ -900,7 +953,7 @@ function FullNav({screen,setScreen}){
 }
 
 // Desktop sidebar nav for full access
-function DesktopSideNav({screen,setScreen,user,onLogout,previewUser,setPreviewUser}){
+function DesktopSideNav({screen,setScreen,user,onLogout,previewUser,setPreviewUser,onAddPayment,pendingCount}){
   const items=[['route','🗺️','Route Plan'],['teams','👥','All Teams'],['zone','📊','Zone Overview'],['admin','⚙️','Admin']];
   const rmOptions=ALL_RMS.map(r=>({name:r.rm,role:'rm',city:r.city||''}));
   const tlNames=[...new Set(ALL_RMS.map(r=>r.tl).filter(Boolean))];
@@ -951,6 +1004,12 @@ function DesktopSideNav({screen,setScreen,user,onLogout,previewUser,setPreviewUs
           ))}
         </div>
       </>}
+    </div>}
+    {onAddPayment&&<div style={{padding:'12px 16px',borderTop:'1px solid rgba(255,255,255,.08)'}}>
+      <button onClick={onAddPayment} style={{width:'100%',padding:'10px 14px',background:B.brand,border:'none',color:'#fff',borderRadius:10,fontSize:13,fontWeight:700,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',gap:8,position:'relative'}}>
+        <span style={{fontSize:18,lineHeight:1}}>+</span> Add Payment
+        {pendingCount>0&&<span style={{background:B.amber,color:'#fff',borderRadius:10,fontSize:10,fontWeight:800,padding:'1px 6px',marginLeft:4}}>{pendingCount} pending</span>}
+      </button>
     </div>}
     <div style={{padding:'16px 20px',borderTop:'1px solid rgba(255,255,255,.1)'}}>
       <div style={{color:'rgba(255,255,255,.8)',fontSize:12,fontWeight:600,marginBottom:4}}>{user.name}</div>
@@ -2828,6 +2887,109 @@ function AllTeamsPanel(){
   );
 }
 
+// ── ADD PAYMENT MODAL ──────────────────────────────────────────────────────
+function AddPaymentModal({onClose}){
+  const isMobile=useIsMobile();
+  const[rmName,setRmName]=useState('');
+  const[date,setDate]=useState(new Date().toISOString().split('T')[0]);
+  const[amount,setAmount]=useState('');
+  const[busy,setBusy]=useState(false);
+  const[status,setStatus]=useState(null); // {ok,sheetOk,msg}
+  const[err,setErr]=useState('');
+
+  const selectedRM=ALL_RMS.find(r=>r.rm.toLowerCase()===rmName.toLowerCase());
+  const tlName=selectedRM?.tl||'';
+  const city=selectedRM?.city||'';
+  const canSubmit=rmName&&date&&parseFloat(amount)>0&&!busy;
+
+  const submit=async()=>{
+    if(!canSubmit)return;
+    setErr('');setBusy(true);
+    const res=await submitPaymentEntry({rm:rmName,tl:tlName,city,date,amount:parseFloat(amount)});
+    setBusy(false);
+    if(res.ok){
+      setStatus(res);
+      if(res.sheetOk){setTimeout(onClose,1400);}
+    } else {
+      setErr('Failed to save. Please try again.');
+    }
+  };
+
+  const inner=(
+    <div style={{padding:isMobile?'20px 20px 28px':'24px'}}>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:20}}>
+        <div>
+          <div style={{fontSize:17,fontWeight:800,color:B.navy}}>Add Payment</div>
+          <div style={{fontSize:12,color:B.muted,marginTop:2}}>Entry will sync to the Google Sheet</div>
+        </div>
+        <button onClick={onClose} style={{background:B.bg,border:'none',borderRadius:8,padding:'6px 10px',cursor:'pointer',fontSize:18,color:B.muted,lineHeight:1}}>✕</button>
+      </div>
+
+      {status&&(
+        <div style={{background:status.sheetOk?B.greenBg:B.amberBg,border:`1px solid ${status.sheetOk?B.green:B.amber}`,borderRadius:10,padding:'10px 14px',marginBottom:16,fontSize:12,fontWeight:600,color:status.sheetOk?B.green:B.amber}}>
+          {status.sheetOk
+            ?'Payment added and synced to sheet.'
+            :'Payment saved locally. To sync to sheet, add the doPost handler to your GAS script (see Admin → Payments tab).'}
+        </div>
+      )}
+
+      <div style={{marginBottom:14}}>
+        <div style={{fontSize:11,fontWeight:700,color:B.muted,textTransform:'uppercase',letterSpacing:'.5px',marginBottom:6}}>RM</div>
+        <select value={rmName} onChange={e=>setRmName(e.target.value)}
+          style={{width:'100%',padding:'11px 14px',border:`1.5px solid ${B.line}`,borderRadius:10,fontSize:14,outline:'none',background:B.white,color:rmName?B.ink:B.muted,appearance:'auto'}}>
+          <option value=''>Select RM…</option>
+          {[...ALL_RMS].sort((a,b)=>a.rm.localeCompare(b.rm)).map(r=>(
+            <option key={r.rm} value={r.rm}>{r.rm} — {r.city}</option>
+          ))}
+        </select>
+      </div>
+
+      {tlName&&<div style={{background:B.brandLight,borderRadius:10,padding:'8px 14px',marginBottom:14,fontSize:12,color:B.brand,fontWeight:600}}>
+        TL: {tlName} · {city}
+      </div>}
+
+      <div style={{display:'flex',gap:12,marginBottom:14}}>
+        <div style={{flex:1}}>
+          <div style={{fontSize:11,fontWeight:700,color:B.muted,textTransform:'uppercase',letterSpacing:'.5px',marginBottom:6}}>Payment Date</div>
+          <input type="date" value={date} onChange={e=>setDate(e.target.value)}
+            style={{width:'100%',padding:'11px 14px',border:`1.5px solid ${B.line}`,borderRadius:10,fontSize:14,outline:'none',boxSizing:'border-box'}}/>
+        </div>
+        <div style={{flex:1}}>
+          <div style={{fontSize:11,fontWeight:700,color:B.muted,textTransform:'uppercase',letterSpacing:'.5px',marginBottom:6}}>Amount (₹)</div>
+          <input type="number" value={amount} onChange={e=>setAmount(e.target.value)}
+            placeholder="0" min="1"
+            style={{width:'100%',padding:'11px 14px',border:`1.5px solid ${B.line}`,borderRadius:10,fontSize:14,outline:'none',boxSizing:'border-box'}}/>
+        </div>
+      </div>
+
+      {err&&<div style={{background:B.redBg,border:`1px solid ${B.red}`,borderRadius:8,padding:'8px 12px',marginBottom:12,fontSize:12,color:B.red,fontWeight:600}}>{err}</div>}
+
+      {!status&&<button onClick={submit} disabled={!canSubmit}
+        style={{width:'100%',padding:'14px',background:!canSubmit?B.muted:B.brand,color:'#fff',border:'none',borderRadius:12,fontSize:15,fontWeight:700,cursor:!canSubmit?'default':'pointer',transition:'background .15s'}}>
+        {busy?'Saving…':'Add Payment'}
+      </button>}
+      {status&&!status.sheetOk&&<button onClick={onClose} style={{width:'100%',padding:'14px',background:B.navy,color:'#fff',border:'none',borderRadius:12,fontSize:14,fontWeight:700,cursor:'pointer'}}>Close</button>}
+    </div>
+  );
+
+  if(isMobile) return(
+    <div style={{position:'fixed',inset:0,zIndex:500,display:'flex',flexDirection:'column',justifyContent:'flex-end'}}>
+      <div onClick={onClose} style={{position:'absolute',inset:0,background:'rgba(0,0,0,.4)'}}/>
+      <div style={{position:'relative',background:B.white,borderRadius:'20px 20px 0 0',maxHeight:'90vh',overflowY:'auto'}}>
+        {inner}
+      </div>
+    </div>
+  );
+  return(
+    <div style={{position:'fixed',inset:0,zIndex:500,display:'flex',alignItems:'center',justifyContent:'center'}}>
+      <div onClick={onClose} style={{position:'absolute',inset:0,background:'rgba(0,0,0,.4)'}}/>
+      <div style={{position:'relative',background:B.white,borderRadius:16,width:460,boxShadow:'0 8px 40px rgba(0,0,0,.2)',maxHeight:'90vh',overflowY:'auto'}}>
+        {inner}
+      </div>
+    </div>
+  );
+}
+
 // ── MONTHLY PAYMENTS CHART ─────────────────────────────────────────────────
 function MonthlyPaymentsChart({rows}){
   const[groupBy,setGroupBy]=useState('auto');
@@ -3601,6 +3763,119 @@ function UsersTab(){
   );
 }
 
+// ── PAYMENTS ADMIN TAB ─────────────────────────────────────────────────────
+function PaymentsAdminTab(){
+  const[pending,setPending]=useState([..._pendingPayments]);
+  const[retrying,setRetrying]=useState({});
+  const[gasCode]=useState(`// Paste this inside your doPost(e) function in Apps Script
+// -------------------------------------------------------
+function doPost(e) {
+  var data = JSON.parse(e.postData.contents);
+
+  if (data.action === 'addPayment') {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var sheet = ss.getSheetByName('Payments'); // change if different
+    var headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+    var colDate   = headers.indexOf('Date') + 1;
+    var colRM     = headers.indexOf('RM Name') + 1;
+    var colTL     = headers.indexOf('TL Name') + 1;
+    var colCity   = headers.indexOf('City') + 1;
+    var colAmt    = headers.indexOf('Amount') + 1;
+    var row = new Array(sheet.getLastColumn()).fill('');
+    row[colDate - 1]  = data.date;
+    row[colRM - 1]    = data.rm_name;
+    row[colTL - 1]    = data.tl_name;
+    row[colCity - 1]  = data.city;
+    row[colAmt - 1]   = data.amount;
+    sheet.appendRow(row);
+    return ContentService
+      .createTextOutput(JSON.stringify({status:'ok'}))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+
+  // ... your existing doGet / other handlers below
+}`);
+
+  const[copied,setCopied]=useState(false);
+
+  function copyCode(){
+    navigator.clipboard.writeText(gasCode).then(()=>{setCopied(true);setTimeout(()=>setCopied(false),2000);});
+  }
+
+  async function retryOne(p){
+    setRetrying(r=>({...r,[p._pid]:true}));
+    const res=await submitPaymentEntry({rm:p.rm,tl:p.tl,city:p.city||'',date:(()=>{const[d,m,y]=p.date.split('/');return`${y}-${m}-${d}`;})(),amount:p.amount});
+    setPending([..._pendingPayments]);
+    setRetrying(r=>({...r,[p._pid]:false}));
+  }
+
+  return(
+    <div style={{display:'flex',flexDirection:'column',gap:20}}>
+
+      {/* Pending payments */}
+      <Card>
+        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:12}}>
+          <div style={{fontWeight:700,fontSize:15,color:B.ink}}>Pending Payments</div>
+          {pending.length>0&&<span style={{background:B.amber,color:'#fff',borderRadius:10,fontSize:11,fontWeight:800,padding:'2px 8px'}}>{pending.length} pending</span>}
+        </div>
+        {pending.length===0
+          ?<div style={{fontSize:13,color:B.muted,padding:'12px 0'}}>No pending payments — all entries have synced to the sheet.</div>
+          :<div style={{display:'flex',flexDirection:'column',gap:8}}>
+            {pending.map(p=>(
+              <div key={p._pid} style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'10px 14px',background:B.bg,borderRadius:10,gap:12,flexWrap:'wrap'}}>
+                <div>
+                  <div style={{fontSize:13,fontWeight:700,color:B.ink}}>{p.rm} <span style={{color:B.muted,fontWeight:500}}>({p.tl})</span></div>
+                  <div style={{fontSize:12,color:B.muted,marginTop:2}}>{p.date} · ₹{Number(p.amount).toLocaleString('en-IN')}</div>
+                </div>
+                <button onClick={()=>retryOne(p)} disabled={retrying[p._pid]}
+                  style={{padding:'7px 16px',background:retrying[p._pid]?B.muted:B.brand,color:'#fff',border:'none',borderRadius:8,fontSize:12,fontWeight:700,cursor:retrying[p._pid]?'default':'pointer',flexShrink:0}}>
+                  {retrying[p._pid]?'Retrying…':'Retry sync'}
+                </button>
+              </div>
+            ))}
+          </div>
+        }
+      </Card>
+
+      {/* GAS setup */}
+      <Card>
+        <div style={{fontWeight:700,fontSize:15,color:B.ink,marginBottom:4}}>Google Apps Script Setup</div>
+        <div style={{fontSize:13,color:B.muted,marginBottom:16,lineHeight:1.6}}>
+          To write payments directly from the app to your sheet, add the code below to your Google Apps Script project, then <strong>re-deploy as a new version</strong> (Deploy → Manage deployments → New version).
+        </div>
+        <div style={{marginBottom:12}}>
+          <div style={{fontSize:11,color:B.muted,fontWeight:700,textTransform:'uppercase',letterSpacing:'.5px',marginBottom:8}}>Steps</div>
+          {[
+            'Open your Apps Script project (Extensions → Apps Script in the sheet)',
+            'Find your existing doPost(e) function',
+            'Paste the code below at the top of that function (before the return)',
+            'Save → Deploy → Manage deployments → select existing deployment → New version',
+            'Copy the deployment URL and make sure SHEET_SCRIPT_URL in index.html matches it',
+          ].map((s,i)=>(
+            <div key={i} style={{display:'flex',gap:10,marginBottom:8,alignItems:'flex-start'}}>
+              <span style={{width:22,height:22,borderRadius:'50%',background:B.brand,color:'#fff',fontSize:11,fontWeight:800,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,marginTop:1}}>{i+1}</span>
+              <div style={{fontSize:13,color:B.ink,lineHeight:1.5}}>{s}</div>
+            </div>
+          ))}
+        </div>
+        <div style={{position:'relative'}}>
+          <pre style={{background:'#1E1B4B',color:'#E2E8F0',borderRadius:12,padding:'16px',fontSize:11,overflowX:'auto',lineHeight:1.6,margin:0,fontFamily:'monospace',whiteSpace:'pre'}}>
+            {gasCode}
+          </pre>
+          <button onClick={copyCode}
+            style={{position:'absolute',top:10,right:10,padding:'5px 12px',background:copied?B.green:'rgba(255,255,255,.12)',color:'#fff',border:'1px solid rgba(255,255,255,.2)',borderRadius:7,fontSize:11,fontWeight:700,cursor:'pointer',backdropFilter:'blur(4px)'}}>
+            {copied?'Copied!':'Copy'}
+          </button>
+        </div>
+        <div style={{marginTop:12,padding:'10px 14px',background:'#FFFBEB',border:'1px solid #FCD34D',borderRadius:10,fontSize:12,color:'#92400E',lineHeight:1.5}}>
+          <strong>Column names:</strong> The code detects columns by header name. Make sure your sheet has headers named exactly: <code>Date</code>, <code>RM Name</code>, <code>TL Name</code>, <code>City</code>, <code>Amount</code>. Change the <code>getSheetByName('Payments')</code> call if your sheet tab has a different name.
+        </div>
+      </Card>
+
+    </div>
+  );
+}
+
 // ── ADMIN PANEL ────────────────────────────────────────────────────────────
 function AdminPanel(){
   const isMobile=useIsMobile();
@@ -3852,7 +4127,7 @@ function AdminPanel(){
     {opts.map(o=>typeof o==='string'?<option key={o}>{o}</option>:<option key={o.v} value={o.v}>{o.l}</option>)}
   </select>;
 
-  const adminTabs=[['targets','🎯 Targets'],['rms','👥 RMs & TLs'],['clinics','🏥 Clinics'],['route','🗺️ Route Sync'],['settings','👤 Users & Reports']];
+  const adminTabs=[['targets','🎯 Targets'],['rms','👥 RMs & TLs'],['clinics','🏥 Clinics'],['route','🗺️ Route Sync'],['payments','💳 Payments'],['settings','👤 Users & Reports']];
 
   return(
     <div style={{background:B.bg,minHeight:'100vh',paddingBottom:isMobile?80:20,padding:isMobile?'0 0 80px 0':'20px 24px'}}>
@@ -4240,6 +4515,9 @@ function AdminPanel(){
           </Card>
         </div>}
 
+        {/* ── PAYMENTS TAB ── */}
+        {adminTab==='payments'&&<PaymentsAdminTab/>}
+
         {/* ── USERS TAB ── */}
         {adminTab==='settings'&&<UsersTab/>}
 
@@ -4254,8 +4532,10 @@ function FullAccessView({user,onLogout}){
   const[screen,setScreen]=useState('zone');
   const[dataVer,setDataVer]=useState(0);
   const[previewUser,setPreviewUser]=useState(null);
+  const[showAddPayment,setShowAddPayment]=useState(false);
   const isMobile=useIsMobile();
   const isAdmin=user.role==='admin';
+  const pendingCount=_pendingPayments.length;
   useEffect(()=>{
     const h=()=>setDataVer(v=>v+1);
     window.addEventListener('rmDataUpdated',h);
@@ -4305,15 +4585,22 @@ function FullAccessView({user,onLogout}){
       </div>
       <div style={{paddingTop:34}}>{content}</div>
       <FullNav screen={screen} setScreen={setScreen}/>
+      {/* Floating add-payment button (above bottom nav) */}
+      <button onClick={()=>setShowAddPayment(true)} style={{position:'fixed',bottom:74,right:16,zIndex:200,width:52,height:52,background:B.brand,border:'none',borderRadius:'50%',color:'#fff',fontSize:26,lineHeight:1,cursor:'pointer',boxShadow:'0 4px 16px rgba(35,80,255,.45)',display:'flex',alignItems:'center',justifyContent:'center'}}>
+        +
+        {pendingCount>0&&<span style={{position:'absolute',top:0,right:0,width:16,height:16,background:B.amber,borderRadius:'50%',fontSize:9,fontWeight:800,color:'#fff',display:'flex',alignItems:'center',justifyContent:'center'}}>{pendingCount}</span>}
+      </button>
+      {showAddPayment&&<AddPaymentModal onClose={()=>setShowAddPayment(false)}/>}
     </div>
   );
   // Desktop
   return(
     <div style={{display:'flex',height:'100vh',overflow:'hidden'}}>
       <div style={{position:'sticky',top:0,height:'100vh',flexShrink:0}}>
-        <DesktopSideNav screen={screen} setScreen={setScreen} user={user} onLogout={onLogout} previewUser={previewUser} setPreviewUser={setPreviewUser}/>
+        <DesktopSideNav screen={screen} setScreen={setScreen} user={user} onLogout={onLogout} previewUser={previewUser} setPreviewUser={setPreviewUser} onAddPayment={()=>setShowAddPayment(true)} pendingCount={pendingCount}/>
       </div>
       <div style={{flex:1,overflowY:'auto'}}>{content}</div>
+      {showAddPayment&&<AddPaymentModal onClose={()=>setShowAddPayment(false)}/>}
     </div>
   );
 }
