@@ -1270,6 +1270,7 @@ function RMView({user,onLogout}){
                 <div style={{fontSize:12,color:B.brand,fontWeight:600}}>{payDateRange==='All Time'?'All payments':'Payments · '+payLabel}</div>
                 <div style={{fontSize:18,fontWeight:800,color:B.brand}}>{fmtN(total)}</div>
               </div>
+              <MonthlyPaymentsChart rows={allMyRows}/>
               {myRows.length===0?(
                 <div style={{textAlign:'center',padding:'32px 0',color:B.muted,fontSize:13}}>
                   {allMyRows.length===0?'No payment data yet. Sync from sheet to load payments.':'No payments in this date range.'}
@@ -1441,6 +1442,7 @@ function TLView({user,onLogout}){
             <StatCard title="On Track" value={myRMs.filter(r=>pct(r.achieved,r.target)>=80).length+'/'+myRMs.length} icon="✅"/>
             <StatCard title="Behind Target" value={String(behind.length)} icon="⚠️"/>
           </div>
+          <MonthlyPaymentsChart rows={(()=>{const rlos=new Set(myRMs.map(r=>r.rm.toLowerCase()));return(_cache.payment_rows||[]).filter(r=>rlos.has(r.rm));})()}  title="Month-on-Month Payments"/>
         </div>
         <div style={{padding:'0 28px 24px'}}>
           <div style={{background:B.white,borderRadius:16,boxShadow:'0 2px 12px rgba(0,0,0,.06)',overflow:'hidden',border:`1px solid ${B.line}`}}>
@@ -2627,6 +2629,7 @@ function AllTeamsPanel(){
         Showing payments for: <strong>{dateRange==='Custom'?`${customFrom} to ${customTo}`:dateRange}</strong> — Total: <strong>{fmt(filtData.total)}</strong> across {filtData.rows.length} payment{filtData.rows.length!==1?'s':''}
       </div>}
       {selectedRM&&<RMPaymentsPanel rm={selectedRM}/>}
+      {!selectedRM&&<MonthlyPaymentsChart rows={cityF==='All'?(_cache.payment_rows||[]):(_cache.payment_rows||[]).filter(r=>ALL_RMS.find(rm=>rm.rm.toLowerCase()===r.rm)?.city===cityF)} title="Month-on-Month Payments"/>}
       <div style={{display:'flex',gap:16,marginBottom:24}}>
         <StatCard title="Zone Target" value={fmt(totTarget)} icon="🎯"/>
         <StatCard title={filtData?`Achieved (${dateRange})`:'Zone Achieved'} value={fmt(totAchv)} sub={`${zp}% of target`} icon="💰" highlight/>
@@ -2806,6 +2809,77 @@ function AllTeamsPanel(){
   );
 }
 
+// ── MONTHLY PAYMENTS CHART ─────────────────────────────────────────────────
+function MonthlyPaymentsChart({rows,title}){
+  const[hov,setHov]=useState(null);
+  const monthMap={};
+  (rows||[]).forEach(r=>{
+    const d=parsePayDate(r.date);if(!d)return;
+    const key=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+    const lbl=d.toLocaleDateString('en-IN',{month:'short',year:'2-digit'});
+    if(!monthMap[key])monthMap[key]={key,rows:[],total:0,lbl};
+    monthMap[key].rows.push(r);monthMap[key].total+=r.amount;
+  });
+  const months=Object.values(monthMap).sort((a,b)=>a.key.localeCompare(b.key));
+  if(months.length===0)return(
+    <div style={{background:B.white,borderRadius:14,border:`1px solid ${B.line}`,padding:'20px',marginBottom:20,textAlign:'center',color:B.muted,fontSize:13}}>No payment history to chart yet</div>
+  );
+  const maxVal=Math.max(...months.map(m=>m.total),1);
+  const BW=44,BG=14,PX=12,CH=160,LH=34,TP=24;
+  const svgW=PX*2+months.length*(BW+BG)-BG;
+  const svgH=TP+CH+LH;
+  const bx=(i)=>PX+i*(BW+BG);
+  const bh=(v)=>Math.max(6,(v/maxVal)*CH);
+  const by=(v)=>TP+CH-bh(v);
+  const hM=hov?monthMap[hov.key]:null;
+  return(
+    <div style={{background:B.white,borderRadius:14,border:`1px solid ${B.line}`,padding:'16px 16px 10px',marginBottom:20,position:'relative'}}>
+      {title&&<div style={{fontSize:13,fontWeight:700,color:B.navy,marginBottom:12}}>{title}</div>}
+      <div style={{overflowX:'auto',WebkitOverflowScrolling:'touch'}}>
+        <svg width={Math.max(svgW,320)} height={svgH} style={{display:'block',overflow:'visible'}}>
+          {[0.25,0.5,0.75,1].map(f=>(
+            <line key={f} x1={0} y1={TP+CH*(1-f)} x2={Math.max(svgW,320)} y2={TP+CH*(1-f)} stroke='#EFF2F7' strokeWidth={1}/>
+          ))}
+          {months.map((m,i)=>{
+            const x=bx(i);const h=bh(m.total);const y=by(m.total);const isH=hov?.key===m.key;
+            return(
+              <g key={m.key} style={{cursor:'pointer'}}
+                onMouseEnter={e=>setHov({key:m.key,x:e.clientX,y:e.clientY})}
+                onMouseMove={e=>setHov(s=>s?{...s,x:e.clientX,y:e.clientY}:null)}
+                onMouseLeave={()=>setHov(null)}>
+                <rect x={x} y={TP} width={BW} height={CH} fill='transparent'/>
+                <rect x={x} y={y} width={BW} height={h} fill={isH?B.brand:B.brandLight} rx={6}/>
+                <text x={x+BW/2} y={y-5} textAnchor='middle' fontSize={9} fill={isH?B.brand:B.muted} fontWeight={isH?700:500}>
+                  {m.total>=100000?(m.total/100000).toFixed(1)+'L':(m.total/1000).toFixed(0)+'K'}
+                </text>
+                <text x={x+BW/2} y={TP+CH+20} textAnchor='middle' fontSize={11} fill={isH?B.brand:B.muted} fontWeight={isH?700:500}>
+                  {m.lbl}
+                </text>
+              </g>
+            );
+          })}
+        </svg>
+      </div>
+      {hov&&hM&&(
+        <div style={{position:'fixed',left:hov.x+16,top:hov.y,background:B.navy,color:'#fff',borderRadius:12,padding:'12px 16px',fontSize:12,zIndex:9999,boxShadow:'0 6px 24px rgba(0,0,0,.25)',minWidth:210,maxWidth:270,pointerEvents:'none',transform:'translateY(-50%)'}}>
+          <div style={{fontWeight:700,fontSize:13,marginBottom:4}}>{hM.lbl}</div>
+          <div style={{fontWeight:800,fontSize:19,color:'#93C5FD',marginBottom:2}}>{fmtN(hM.total)}</div>
+          <div style={{color:'rgba(255,255,255,.5)',fontSize:11,marginBottom:8}}>{hM.rows.length} payment{hM.rows.length!==1?'s':''}</div>
+          <div style={{borderTop:'1px solid rgba(255,255,255,.1)',paddingTop:8}}>
+            {hM.rows.slice(0,5).map((r,i)=>(
+              <div key={i} style={{display:'flex',justifyContent:'space-between',gap:12,marginBottom:3}}>
+                <div style={{color:'rgba(255,255,255,.7)',fontSize:11,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:130}}>{r.rm||'—'}</div>
+                <div style={{fontSize:11,fontWeight:700,flexShrink:0}}>{fmtN(r.amount)}</div>
+              </div>
+            ))}
+            {hM.rows.length>5&&<div style={{color:'rgba(255,255,255,.4)',fontSize:10,marginTop:3}}>+{hM.rows.length-5} more</div>}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── ZONE OVERVIEW (full desktop tables) ────────────────────────────────────
 function ZoneOverviewPanel(){
   const[,_forceUpdate]=useState(0);
@@ -2917,6 +2991,7 @@ function ZoneOverviewPanel(){
         </div>}
 
         <KpiRow/>
+        <MonthlyPaymentsChart rows={_cache.payment_rows||[]} title="Month-on-Month Payments"/>
 
         {/* Tab nav */}
         <div style={{background:B.white,border:`1px solid ${B.line}`,borderRadius:10,padding:6,display:'inline-flex',gap:4,marginBottom:20}}>
