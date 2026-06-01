@@ -1,7 +1,7 @@
 {
-  "name": "Even — Sales Operations",
-  "short_name": "Even Pay",
-  "description": "Sales operations and route planning platform for Even Healthcare",
+  "name": "Evenpay Route Plan",
+  "short_name": "Evenpay",
+  "description": "Route planning and sales operations platform for Even Healthcare",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

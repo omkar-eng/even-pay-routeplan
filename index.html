@@ -3,13 +3,13 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
-<title>Even — Sales Operations Platform</title>
+<title>Evenpay Route Plan</title>
 <link rel="manifest" href="/manifest.json">
 <meta name="theme-color" content="#2350FF">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Even Pay">
+<meta name="apple-mobile-web-app-title" content="Evenpay Route Plan">
 <link rel="apple-touch-icon" href="/icon.svg">
 <link rel="icon" type="image/svg+xml" href="/icon.svg">
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
@@ -974,7 +974,7 @@ function DesktopSideNav({screen,setScreen,user,onLogout,previewUser,setPreviewUs
   return <div style={{width:220,background:B.navy,height:'100vh',display:'flex',flexDirection:'column',flexShrink:0,overflowY:'auto'}}>
     <div style={{padding:'24px 20px 20px'}}>
       <img src="even-logo.svg" alt="even" style={{height:26,display:'block',marginBottom:6}}/>
-      <div style={{fontSize:11,color:'rgba(255,255,255,.5)',marginTop:2}}>Sales Operations</div>
+      <div style={{fontSize:11,color:'rgba(255,255,255,.5)',marginTop:2}}>Route Plan</div>
     </div>
     <div style={{padding:'8px 12px',flex:1}}>
       {items.map(([id,icon,lbl])=>(
@@ -1126,7 +1126,7 @@ function Login({onLogin}){
       <div style={{width:'100%',maxWidth:380}} className="fade-in">
         <div style={{textAlign:'center',marginBottom:32}}>
           <img src="even-logo.svg" alt="even" style={{height:38,margin:'0 auto 12px',display:'block'}}/>
-          <div style={{color:'rgba(255,255,255,.6)',fontSize:13,marginTop:6}}>Sales Operations Platform</div>
+          <div style={{color:'rgba(255,255,255,.6)',fontSize:13,marginTop:6}}>Evenpay Route Plan</div>
         </div>
         <div style={{background:B.white,borderRadius:20,padding:28,boxShadow:'0 20px 60px rgba(35,80,255,.25)'}}>
           {!forgotMode?(
@@ -1225,7 +1225,7 @@ function ForcePasswordChange({user,onDone}){
       <div style={{width:'100%',maxWidth:380}} className="fade-in">
         <div style={{textAlign:'center',marginBottom:32}}>
           <img src="even-logo.svg" alt="even" style={{height:38,margin:'0 auto 12px',display:'block'}}/>
-          <div style={{color:'rgba(255,255,255,.6)',fontSize:13,marginTop:6}}>Sales Operations Platform</div>
+          <div style={{color:'rgba(255,255,255,.6)',fontSize:13,marginTop:6}}>Evenpay Route Plan</div>
         </div>
         <div style={{background:B.white,borderRadius:20,padding:28,boxShadow:'0 20px 60px rgba(35,80,255,.25)'}}>
           <div style={{fontSize:18,fontWeight:700,color:B.ink,marginBottom:6}}>Set your password</div>
@@ -4174,10 +4174,10 @@ function AdminPanel(){
     if(perm==='granted'){
       try{
         const reg=await navigator.serviceWorker.ready;
-        await reg.showNotification('Even Pay',{body:'Notifications are working on this device.',icon:'/icon.svg',badge:'/icon.svg'});
+        await reg.showNotification('Evenpay Route Plan',{body:'Notifications are working on this device.',icon:'/icon.svg',badge:'/icon.svg'});
         setNotifStatus('Sent! Check your notification tray.');
       }catch(e){
-        new Notification('Even Pay',{body:'Notifications are working.'});
+        new Notification('Evenpay Route Plan',{body:'Notifications are working.'});
         setNotifStatus('Sent!');
       }
     } else if(perm==='denied'){
@@ -4201,7 +4201,7 @@ function AdminPanel(){
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
           <div>
             <div style={{color:'rgba(255,255,255,.65)',fontSize:12}}>Admin Panel</div>
-            <div style={{color:'#fff',fontSize:20,fontWeight:800,marginTop:2}}>Sales Operations</div>
+            <div style={{color:'#fff',fontSize:20,fontWeight:800,marginTop:2}}>Evenpay Route Plan</div>
           </div>
           <button onClick={testNotification} style={{padding:'7px 14px',background:'rgba(255,255,255,.15)',color:'#fff',border:'1px solid rgba(255,255,255,.25)',borderRadius:10,fontSize:12,fontWeight:700,cursor:'pointer',flexShrink:0}}>
             🔔 Test
