@@ -4166,12 +4166,48 @@ function AdminPanel(){
 
   const adminTabs=[['targets','🎯 Targets'],['rms','👥 RMs & TLs'],['clinics','🏥 Clinics'],['route','🗺️ Route Sync'],['payments','💳 Payments'],['settings','👤 Users & Reports']];
 
+  const[notifStatus,setNotifStatus]=useState('');
+  async function testNotification(){
+    setNotifStatus('Requesting…');
+    if(!('Notification' in window)){setNotifStatus('Not supported on this browser');return;}
+    const perm=await Notification.requestPermission();
+    if(perm==='granted'){
+      try{
+        const reg=await navigator.serviceWorker.ready;
+        await reg.showNotification('Even Pay',{body:'Notifications are working on this device.',icon:'/icon.svg',badge:'/icon.svg'});
+        setNotifStatus('Sent! Check your notification tray.');
+      }catch(e){
+        new Notification('Even Pay',{body:'Notifications are working.'});
+        setNotifStatus('Sent!');
+      }
+    } else if(perm==='denied'){
+      setNotifStatus('Blocked — enable notifications for this site in browser settings.');
+    } else {
+      setNotifStatus('Permission dismissed.');
+    }
+    setTimeout(()=>setNotifStatus(''),5000);
+  }
+
   return(
     <div style={{background:B.bg,minHeight:'100vh',paddingBottom:isMobile?80:20,padding:isMobile?'0 0 80px 0':'20px 24px'}}>
-      {!isMobile&&<div style={{fontSize:24,fontWeight:800,color:B.navy,marginBottom:20}}>⚙️ Admin Panel</div>}
+      {!isMobile&&<div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:20}}>
+        <div style={{fontSize:24,fontWeight:800,color:B.navy}}>⚙️ Admin Panel</div>
+        <div style={{display:'flex',alignItems:'center',gap:10}}>
+          {notifStatus&&<span style={{fontSize:12,color:notifStatus.startsWith('Sent')?B.green:B.amber,fontWeight:600}}>{notifStatus}</span>}
+          <button onClick={testNotification} style={{padding:'8px 16px',background:B.navy,color:'#fff',border:'none',borderRadius:10,fontSize:12,fontWeight:700,cursor:'pointer'}}>🔔 Test Notification</button>
+        </div>
+      </div>}
       {isMobile&&<div style={{background:'linear-gradient(135deg,#1E1B4B,#4338CA)',padding:'22px 18px 16px',borderRadius:'0 0 28px 28px',marginBottom:0}}>
-        <div style={{color:'rgba(255,255,255,.65)',fontSize:12}}>Admin Panel</div>
-        <div style={{color:'#fff',fontSize:20,fontWeight:800,marginTop:2}}>Sales Operations</div>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
+          <div>
+            <div style={{color:'rgba(255,255,255,.65)',fontSize:12}}>Admin Panel</div>
+            <div style={{color:'#fff',fontSize:20,fontWeight:800,marginTop:2}}>Sales Operations</div>
+          </div>
+          <button onClick={testNotification} style={{padding:'7px 14px',background:'rgba(255,255,255,.15)',color:'#fff',border:'1px solid rgba(255,255,255,.25)',borderRadius:10,fontSize:12,fontWeight:700,cursor:'pointer',flexShrink:0}}>
+            🔔 Test
+          </button>
+        </div>
+        {notifStatus&&<div style={{marginTop:8,fontSize:12,color:notifStatus.startsWith('Sent')?'#86efac':'#fcd34d',fontWeight:600}}>{notifStatus}</div>}
       </div>}
 
       {/* Admin tab nav */}
