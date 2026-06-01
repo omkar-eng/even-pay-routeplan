@@ -763,8 +763,8 @@ function mergePendingIntoPaymentRows(){
   if(toAdd.length)_cache.payment_rows=[...(_cache.payment_rows||[]),...toAdd];
 }
 
-async function submitPaymentEntry({rm,tl,city,date,amount}){
-  const row={date:formatSheetDate(date),rm:rm.toLowerCase(),tl:tl.toLowerCase(),amount,_pid:Date.now(),pending:true};
+async function submitPaymentEntry({rm,tl,city,date,amount,is:isName=''}){
+  const row={date:formatSheetDate(date),rm:rm.toLowerCase(),tl:tl.toLowerCase(),is:isName,city,amount,_pid:Date.now(),pending:true};
   // 1. Save to local pending + Firestore immediately so it shows in app
   _pendingPayments=[..._pendingPayments,row];
   _cache.payment_rows=[...(_cache.payment_rows||[]),row];
@@ -775,7 +775,7 @@ async function submitPaymentEntry({rm,tl,city,date,amount}){
     const resp=await fetch(SHEET_SCRIPT_URL,{
       method:'POST',
       headers:{'Content-Type':'text/plain'},
-      body:JSON.stringify({action:'addPayment',date:row.date,tl,rm,city,amount})
+      body:JSON.stringify({action:'addPayment',date:row.date,tl,rm,city,is:isName,amount})
     });
     const j=await resp.json().catch(()=>({}));
     if(j.status==='ok'){
@@ -2891,6 +2891,7 @@ function AllTeamsPanel(){
 function AddPaymentModal({onClose}){
   const isMobile=useIsMobile();
   const[rmName,setRmName]=useState('');
+  const[isName,setIsName]=useState('');
   const[date,setDate]=useState(new Date().toISOString().split('T')[0]);
   const[amount,setAmount]=useState('');
   const[busy,setBusy]=useState(false);
@@ -2905,7 +2906,7 @@ function AddPaymentModal({onClose}){
   const submit=async()=>{
     if(!canSubmit)return;
     setErr('');setBusy(true);
-    const res=await submitPaymentEntry({rm:rmName,tl:tlName,city,date,amount:parseFloat(amount)});
+    const res=await submitPaymentEntry({rm:rmName,tl:tlName,city,date,amount:parseFloat(amount),is:isName.trim()});
     setBusy(false);
     if(res.ok){
       setStatus(res);
@@ -2947,6 +2948,14 @@ function AddPaymentModal({onClose}){
       {tlName&&<div style={{background:B.brandLight,borderRadius:10,padding:'8px 14px',marginBottom:14,fontSize:12,color:B.brand,fontWeight:600}}>
         TL: {tlName} · {city}
       </div>}
+
+      <div style={{marginBottom:14}}>
+        <div style={{fontSize:11,fontWeight:700,color:B.muted,textTransform:'uppercase',letterSpacing:'.5px',marginBottom:6}}>IS Name</div>
+        <input type="text" value={isName} onChange={e=>setIsName(e.target.value)}
+          placeholder="Insurance Specialist name (optional)"
+          style={{width:'100%',padding:'11px 14px',border:`1.5px solid ${B.line}`,borderRadius:10,fontSize:14,outline:'none',boxSizing:'border-box'}}
+          onFocus={e=>e.target.style.borderColor=B.brand} onBlur={e=>e.target.style.borderColor=B.line}/>
+      </div>
 
       <div style={{display:'flex',gap:12,marginBottom:14}}>
         <div style={{flex:1}}>
@@ -3804,7 +3813,7 @@ function doPost(e) {
 
   async function retryOne(p){
     setRetrying(r=>({...r,[p._pid]:true}));
-    const res=await submitPaymentEntry({rm:p.rm,tl:p.tl,city:p.city||'',date:(()=>{const[d,m,y]=p.date.split('/');return`${y}-${m}-${d}`;})(),amount:p.amount});
+    const res=await submitPaymentEntry({rm:p.rm,tl:p.tl,city:p.city||'',is:p.is||'',date:(()=>{const[d,m,y]=p.date.split('/');return`${y}-${m}-${d}`;})(),amount:p.amount});
     setPending([..._pendingPayments]);
     setRetrying(r=>({...r,[p._pid]:false}));
   }
