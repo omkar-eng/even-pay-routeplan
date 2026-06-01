@@ -837,30 +837,30 @@ const ZONE={
 const ALL_RMS=[
 ];
 
-// Canonical IS names — lowercase to match payment_rows.is
+// Canonical IS people — name lowercase to match payment_rows.is
 const IS_NAMES=[
-  'aakansha kumari lohani',
-  'aman',
-  'aman bhaesare',
-  'aniket sahu',
-  'archana raju mane',
-  'arya nirawane',
-  'jayraj',
-  'karan',
-  'mamta l',
-  'nikhil',
-  'payal r',
-  'purva ramteke',
-  'ranajit biswas',
-  'riya mukharji',
-  'safia',
-  'sagar jalkote',
-  'sakshika suman',
-  'sanket',
-  'sanmoy banerjee',
-  'tejasvini',
-  'udit pandey',
-  'vrushabh',
+  {name:'aakansha kumari lohani', email:'aakansha@even.in'},
+  {name:'aman',                   email:'aman.pandey@even.in'},
+  {name:'aman bhaesare',          email:'aman.bhaisare@even.in'},
+  {name:'aniket sahu',            email:'aniket.vijay@even.in'},
+  {name:'archana raju mane',      email:'archana.mane@even.in'},
+  {name:'arya nirawane',          email:'arya@even.in'},
+  {name:'jayraj',                 email:'jbansode@even.in'},
+  {name:'karan',                  email:'karan.pawar@even.in'},
+  {name:'mamta l',                email:'mamta.l@even.in'},
+  {name:'nikhil',                 email:'nikhil.gaikwad@even.in'},
+  {name:'payal r',                email:'payal.r@even.in'},
+  {name:'purva ramteke',          email:'purva@even.in'},
+  {name:'ranajit biswas',         email:'ranajit@even.in'},
+  {name:'riya mukharji',          email:'riya.mukharji@even.in'},
+  {name:'safia',                  email:'safia.khan@even.in'},
+  {name:'sagar jalkote',          email:'sagar.jalkote@even.in'},
+  {name:'sakshika suman',         email:'sakshika.suman@even.in'},
+  {name:'sanket',                 email:'sanket.londhe@even.in'},
+  {name:'sanmoy banerjee',        email:'sanmoy.banerjee@even.in'},
+  {name:'tejasvini',              email:'tejasvini@even.in'},
+  {name:'udit pandey',            email:'udit@even.in'},
+  {name:'vrushabh',               email:'vrushab.shetake@even.in'},
 ];
 
 // ── APPLY STORE → GLOBALS ─────────────────────────────────────────────────
@@ -2991,7 +2991,7 @@ function AddPaymentModal({onClose}){
           style={{width:'100%',padding:'11px 14px',border:`1.5px solid ${B.line}`,borderRadius:10,fontSize:14,outline:'none',boxSizing:'border-box'}}
           onFocus={e=>e.target.style.borderColor=B.brand} onBlur={e=>e.target.style.borderColor=B.line}/>
         <datalist id="is-datalist">
-          {[...new Set([...IS_NAMES,...(_cache.payment_rows||[]).map(r=>r.is).filter(Boolean)])].sort().map(n=>(
+          {[...new Set([...IS_NAMES.map(i=>i.name),...(_cache.payment_rows||[]).map(r=>r.is).filter(Boolean)])].sort().map(n=>(
             <option key={n} value={toTitleCase(n)}/>
           ))}
         </datalist>
@@ -3638,6 +3638,35 @@ function UsersTab(){
     setBulkBusy(false);
   };
 
+  const IS_PASSWORD='Even@1234';
+  const bulkCreateIS=async()=>{
+    if(!window.confirm(`Create accounts for all 22 IS people?\n\nPassword: ${IS_PASSWORD}\n\nExisting accounts will be skipped.`))return;
+    setBulkBusy(true);setShowBulkLog(true);
+    const log=[];
+    const addLog=(name,email,st,msg)=>{log.push({name,email,status:st,msg});setBulkLog([...log]);};
+    const existingEmails=new Set(users.map(u=>u.email?.toLowerCase()));
+    for(const p of IS_NAMES){
+      const emailLo=p.email.toLowerCase();
+      if(existingEmails.has(emailLo)){addLog(toTitleCase(p.name),p.email,'skip','Already has account');continue;}
+      try{
+        const secondary=firebase.initializeApp(firebaseConfig,'_is_'+Date.now());
+        const secAuth=secondary.auth();
+        const cred=await secAuth.createUserWithEmailAndPassword(emailLo,IS_PASSWORD);
+        const uid=cred.user.uid;
+        const userData={name:p.name,email:emailLo,role:'is',mustChangePassword:true,createdAt:new Date().toISOString()};
+        await db.collection('users').doc(uid).set(userData);
+        await secAuth.signOut();await secondary.delete();
+        setUsers(prev=>[...prev,{id:uid,...userData}]);
+        existingEmails.add(emailLo);
+        addLog(toTitleCase(p.name),p.email,'ok','Created');
+      }catch(e){
+        if(e.code==='auth/email-already-in-use'){existingEmails.add(emailLo);addLog(toTitleCase(p.name),p.email,'skip','Already has account');}
+        else addLog(toTitleCase(p.name),p.email,'err',e.message);
+      }
+    }
+    setBulkBusy(false);
+  };
+
   const inp=(val,set,ph,type='text')=><input value={val} onChange={e=>set(e.target.value)} placeholder={ph} type={type}
     style={{width:'100%',padding:'9px 12px',border:`1.5px solid ${B.line}`,borderRadius:10,fontSize:13,outline:'none',boxSizing:'border-box'}}
     onFocus={e=>e.target.style.borderColor=B.brand} onBlur={e=>e.target.style.borderColor=B.line}/>;
@@ -3662,7 +3691,11 @@ function UsersTab(){
           {status&&<span style={{fontSize:13,color:status.includes('✅')?B.green:status.includes('❌')?B.red:B.muted,fontWeight:600,maxWidth:300}}>{status}</span>}
           <button onClick={bulkCreate} disabled={bulkBusy}
             style={{padding:'9px 18px',background:bulkBusy?B.muted:B.green,color:'#fff',border:'none',borderRadius:10,fontSize:13,fontWeight:700,cursor:'pointer',whiteSpace:'nowrap'}}>
-            {bulkBusy?'Creating…':'⚡ Bulk Create All'}
+            {bulkBusy?'Creating…':'⚡ Bulk Create RMs & TLs'}
+          </button>
+          <button onClick={bulkCreateIS} disabled={bulkBusy}
+            style={{padding:'9px 18px',background:bulkBusy?B.muted:'#7C3AED',color:'#fff',border:'none',borderRadius:10,fontSize:13,fontWeight:700,cursor:'pointer',whiteSpace:'nowrap'}}>
+            {bulkBusy?'Creating…':'📞 Bulk Create IS'}
           </button>
           <button onClick={()=>setShowAdd(!showAdd)}
             style={{padding:'9px 18px',background:B.brand,color:'#fff',border:'none',borderRadius:10,fontSize:13,fontWeight:700,cursor:'pointer'}}>
@@ -3710,7 +3743,7 @@ function UsersTab(){
               : newUser.role==='tl'
                 ? selEl(newUser.name,v=>setNewUser({...newUser,name:v}),[{v:'',l:'Pick TL from list…'},...tls])
                 : newUser.role==='is'
-                  ? selEl(newUser.name,v=>setNewUser({...newUser,name:v}),[{v:'',l:'Pick IS from list…'},...IS_NAMES.map(n=>({v:n,l:toTitleCase(n)}))])
+                  ? selEl(newUser.name,v=>setNewUser({...newUser,name:v}),[{v:'',l:'Pick IS from list…'},...IS_NAMES.map(i=>({v:i.name,l:toTitleCase(i.name)}))])
                   : inp(newUser.name,v=>setNewUser({...newUser,name:v}),'e.g. Omkar')}
           </div>
           <div>
