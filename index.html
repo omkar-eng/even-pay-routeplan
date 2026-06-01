@@ -900,6 +900,7 @@ function applyStoreToRMs(){
     if(!e.rm||!e.tl)return;
     ALL_RMS.push({
       rm:e.rm,tl:e.tl,city:e.city||'',
+      inactive:e.inactive||false,
       target:e.target||0,achieved:e.netAchieved||0,refund:e.refund||0,
       monthlyTgt:e.monthlyLeads||0,monthlyAchv:e.monthlyAchieved||0,
       dailyTgt:e.dailyLeads||0,dailyAchv:e.dailyAchieved||0,
@@ -918,10 +919,10 @@ function applyStoreToRMs(){
     ZONE.tls.push(nt);tlByName[r.tl.toLowerCase()]=nt;
   });
 
-  // Compute TL aggregates
+  // Compute TL aggregates — targets use active RMs only
   ZONE.tls.forEach(tl=>{
     const n=tl.name.toLowerCase();
-    const rms=ALL_RMS.filter(r=>r.tl.toLowerCase()===n);
+    const rms=ALL_RMS.filter(r=>r.tl.toLowerCase()===n&&!r.inactive);
     tl.target    =rms.reduce((s,r)=>s+(r.target||0),0);
     tl.achieved  =((_cache.tl_achieved||{})[safeKey(tl.name)]||{}).achieved??rms.reduce((s,r)=>s+(r.achieved||0),0);
     tl.monthlyTgt=rms.reduce((s,r)=>s+(r.monthlyTgt||0),0);
@@ -1494,7 +1495,7 @@ function TLView({user,onLogout}){
   const[customTo,setCustomTo]=useState('');
   const[singleDate,setSingleDate]=useState('');
   const isMobile=useIsMobile();
-  const myRMs=ALL_RMS.filter(r=>r.tl===user.name);
+  const myRMs=ALL_RMS.filter(r=>r.tl===user.name&&!r.inactive);
   const tgt=myRMs.reduce((s,r)=>s+r.target,0);
   const filtData=(()=>{
     if(dateRange==='All Time')return null;
@@ -1617,9 +1618,10 @@ function TLView({user,onLogout}){
                   {myRMs.sort((a,b)=>pct(b.achieved,b.target)-pct(a.achieved,a.target)).map((r,i)=>{
                     const rma=filtData?filtData.rmPayments[r.rm.toLowerCase()]||0:r.achieved;
                     const p=pct(rma,r.target);
-                    const stc=p>=80?B.green:p>=60?B.amber:B.red;
-                    const stb=p>=80?B.greenBg:p>=60?B.amberBg:B.redBg;
-                    const stl=p>=80?'On Track':p>=60?'At Risk':'Behind';
+                    const noTgt=r.target===0;
+                    const stc=noTgt?B.muted:p>=80?B.green:p>=60?B.amber:B.red;
+                    const stb=noTgt?B.bg:p>=80?B.greenBg:p>=60?B.amberBg:B.redBg;
+                    const stl=noTgt?'No target':p>=80?'On Track':p>=60?'At Risk':'Behind';
                     return <tr key={i} style={{background:B.white}} onMouseEnter={e=>e.currentTarget.style.background='#F8FAFC'} onMouseLeave={e=>e.currentTarget.style.background=B.white}>
                       <td style={{...td2,color:B.muted,fontWeight:600,width:44}}>{i+1}</td>
                       <td style={td2}>
@@ -1629,13 +1631,13 @@ function TLView({user,onLogout}){
                         </div>
                       </td>
                       <td style={td2}>{r.city}</td>
-                      <td style={tdR2}>{Number(r.target).toLocaleString('en-IN')}</td>
+                      <td style={tdR2}>{noTgt?<span style={{color:B.muted,fontSize:11}}>No target</span>:Number(r.target).toLocaleString('en-IN')}</td>
                       <td style={tdR2}>{Number(rma).toLocaleString('en-IN')}</td>
-                      <td style={tdR2}><span style={{color:pClr(p),fontWeight:700}}>{p}%</span></td>
-                      <td style={tdR2}>{r.monthlyTgt}</td>
+                      <td style={tdR2}><span style={{color:noTgt?B.muted:pClr(p),fontWeight:700}}>{noTgt?'—':p+'%'}</span></td>
+                      <td style={tdR2}>{r.monthlyTgt||'—'}</td>
                       <td style={tdR2}>{r.monthlyAchv}</td>
-                      <td style={tdR2}>{r.dailyTgt}</td>
-                      <td style={tdR2}>{r.renewalTgt}</td>
+                      <td style={tdR2}>{r.dailyTgt||'—'}</td>
+                      <td style={tdR2}>{r.renewalTgt||'—'}</td>
                       <td style={tdR2}>{r.renewalAchv}</td>
                       <td style={td2}><span style={{background:stb,color:stc,padding:'4px 12px',borderRadius:20,fontSize:11,fontWeight:700}}>{stl}</span></td>
                     </tr>;
@@ -2272,7 +2274,7 @@ function _oldRoutePlan_DELETED(){const getEffectiveClinics=(r)=>{
   const lastSync=_cache.route_settings?.lastSynced;
   const lastSyncStr=lastSync?new Date(lastSync).toLocaleString('en-IN',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}):'Never synced';
 
-  const filtered=ALL_RMS.filter(r=>{
+  const filtered=ALL_RMS.filter(r=>!r.inactive).filter(r=>{
     if(cityF!=='All'&&r.city!==cityF)return false;
     if(tlF!=='All'&&r.tl!==tlF)return false;
     if(search&&!r.rm.toLowerCase().includes(search.toLowerCase())&&!r.clinics.some(c=>c.name.toLowerCase().includes(search.toLowerCase())))return false;
@@ -2798,7 +2800,7 @@ function AllTeamsPanel(){
           {tableView!=='chart'&&<button onClick={()=>tableView==='tl'?downloadCSV(['TL','City','RMs','Target','Achieved','Target %'],tls.map(t=>[t.name,t.city,t.rms,t.target,t.achieved,pct(t.achieved,t.target)+'%']),'all_teams.csv'):downloadCSV(['RM','TL','City','Target','Achieved','Target %'],ALL_RMS.filter(r=>cityF==='All'||r.city===cityF).map(r=>[r.rm,r.tl,r.city,r.target,r.achieved,pct(r.achieved,r.target)+'%']),'all_rms.csv')} style={{background:B.navy,color:'#fff',border:'none',borderRadius:10,padding:'9px 18px',fontSize:12,fontWeight:700,cursor:'pointer'}}>Download CSV</button>}
         </div>
         {tableView==='rm'&&(()=>{
-          const allRMs=ALL_RMS.filter(r=>cityF==='All'||r.city===cityF);
+          const allRMs=ALL_RMS.filter(r=>!r.inactive&&(cityF==='All'||r.city===cityF));
           const sorted=[...allRMs].sort((a,b)=>{
             const pa=pct(filtData?filtData.rmPayments[a.rm.toLowerCase()]||0:a.achieved,a.target);
             const pb=pct(filtData?filtData.rmPayments[b.rm.toLowerCase()]||0:b.achieved,b.target);
@@ -3460,7 +3462,7 @@ function ZoneOverviewPanel(){
             </div>
             <div style={{marginLeft:'auto'}}>
               <button onClick={()=>{
-                const rows=ALL_RMS.filter(r=>(filterTL==='all'||r.tl===filterTL)&&(filterCity==='all'||r.city===filterCity))
+                const rows=ALL_RMS.filter(r=>!r.inactive&&(filterTL==='all'||r.tl===filterTL)&&(filterCity==='all'||r.city===filterCity))
                   .map(r=>[r.tl,r.rm,r.city,r.target,r.refund||0,r.achieved,r.achieved,pct(r.achieved,r.target)+'%',r.monthlyTgt,r.monthlyAchv,pct(r.monthlyAchv,r.monthlyTgt)+'%',r.dailyTgt,r.dailyAchv]);
                 downloadCSV(['TL','RM','City','Target','Refund','Net Achv','Actual','Target %','Mthly Tgt','Mthly Achv','Mthly %','Daily Tgt','Daily Achv'],rows,'individual_rm.csv');
               }} style={{background:B.navy,color:'#fff',border:'none',borderRadius:10,padding:'10px 20px',fontSize:13,fontWeight:700,cursor:'pointer',marginTop:20}}>
@@ -3472,7 +3474,7 @@ function ZoneOverviewPanel(){
             <table className="dt">
               <thead><tr><th>TL</th><th>RM</th><th>City</th><th className="num">Target (₹)</th><th className="num">Refund (₹)</th><th className="num">Net ACHV (₹)</th><th className="num">Actual (₹)</th>{filtData&&<th className="num" style={{color:B.brand}}>Payments (₹)</th>}<th className="num">Target %</th><th className="num">MTHLY TGT</th><th className="num">MTHLY ACHV</th><th className="num">MTHLY %</th><th className="num">DAILY TGT</th><th className="num">DAILY ACHV</th><th className="num">RENEWAL TGT</th><th className="num">RENEWAL ACHV</th></tr></thead>
               <tbody>
-                {ALL_RMS.filter(r=>(filterTL==='all'||r.tl===filterTL)&&(filterCity==='all'||r.city===filterCity))
+                {ALL_RMS.filter(r=>!r.inactive&&(filterTL==='all'||r.tl===filterTL)&&(filterCity==='all'||r.city===filterCity))
                   .sort((a,b)=>pct(b.achieved,b.target)-pct(a.achieved,a.target))
                   .map((r,i)=>{
                     const p=pct(r.achieved,r.target);const mp=pct(r.monthlyAchv,r.monthlyTgt);const dp=pct(r.dailyAchv,r.dailyTgt);
@@ -3486,10 +3488,10 @@ function ZoneOverviewPanel(){
                       <td className="num">{Number(r.achieved).toLocaleString('en-IN')}</td>
                       <td className="num">{Number(r.achieved).toLocaleString('en-IN')}</td>
                       {filtData&&<td className="num" style={{color:B.brand,fontWeight:700}}>{Number(rmPay).toLocaleString('en-IN')}</td>}
-                      <td className="num"><span style={{color:pClr(p),fontWeight:700}}>{p}%</span></td>
-                      <td className="num">{r.monthlyTgt}</td>
+                      <td className="num"><span style={{color:r.target>0?pClr(p):B.muted,fontWeight:700}}>{r.target>0?p+'%':'—'}</span></td>
+                      <td className="num">{r.monthlyTgt||'—'}</td>
                       <td className="num">{r.monthlyAchv}</td>
-                      <td className="num"><span style={{color:pClr(mp),fontWeight:700}}>{mp}%</span></td>
+                      <td className="num"><span style={{color:r.monthlyTgt>0?pClr(mp):B.muted,fontWeight:700}}>{r.monthlyTgt>0?mp+'%':'—'}</span></td>
                       <td className="num">{r.dailyTgt}</td>
                       <td className="num">{r.dailyAchv}</td>
                       <td className="num">{r.renewalTgt}</td>
@@ -3497,7 +3499,7 @@ function ZoneOverviewPanel(){
                     </tr>;
                   })}
               </tbody>
-              <tfoot>{(()=>{const rmF=ALL_RMS.filter(r=>(filterTL==='all'||r.tl===filterTL)&&(filterCity==='all'||r.city===filterCity));return(
+              <tfoot>{(()=>{const rmF=ALL_RMS.filter(r=>!r.inactive&&(filterTL==='all'||r.tl===filterTL)&&(filterCity==='all'||r.city===filterCity));return(
                 <tr style={{background:B.navy}}>
                   <td colSpan={3} style={{padding:'12px 14px',color:'#fff',fontWeight:800,fontSize:13}}>TOTALS — {rmF.length} RMs</td>
                   <td className="num" style={{color:'rgba(255,255,255,.9)',fontWeight:700}}>{Number(rmF.reduce((s,r)=>s+r.target,0)).toLocaleString('en-IN')}</td>
@@ -4089,6 +4091,36 @@ function AdminPanel(){
     _cache.targets[key]=doc;
   };
 
+  const toggleInactive=async(r)=>{
+    const newVal=!r.inactive;
+    await saveRMDoc(r.tl,r.rm,{inactive:newVal});
+    applyStoreToRMs();
+    setWorkingRMs(ALL_RMS.map(x=>({...x})));
+    window.dispatchEvent(new Event('rmDataUpdated'));
+    setRmSaving(newVal?`✅ ${r.rm} marked inactive`:`✅ ${r.rm} reactivated`);
+    setTimeout(()=>setRmSaving(''),3000);
+  };
+
+  const resetMonthlyTargets=async()=>{
+    if(!window.confirm('Reset all RM targets for this month? This clears all target and achievement numbers. Names, TL assignments, and clinics are kept.'))return;
+    setRmSaving('Resetting…');
+    const batch=[];
+    for(const r of ALL_RMS){
+      const key=safeKey(`${r.tl}|${r.rm}`);
+      const doc={...(_cache.targets[key]||{}),tl:r.tl,rm:r.rm,
+        target:0,refund:0,monthlyLeads:0,dailyLeads:0,renewalTarget:0,
+        netAchieved:0,monthlyAchieved:0,dailyAchieved:0,renewalAchieved:0,
+        updatedAt:new Date().toISOString()};
+      batch.push(db.collection('targets').doc(key).set(doc).then(()=>{_cache.targets[key]=doc;}));
+    }
+    await Promise.all(batch);
+    applyStoreToRMs();
+    setWorkingRMs(ALL_RMS.map(x=>({...x})));
+    window.dispatchEvent(new Event('rmDataUpdated'));
+    setRmSaving('✅ All targets reset');
+    setTimeout(()=>setRmSaving(''),4000);
+  };
+
   // ── Clinic Health Apps Script actions ──
   const handleSaveRoutePlanUrl=async()=>{
     if(!routePlanScriptUrl.trim()){setRoutePlanMsg('Paste the Apps Script URL first');return;}
@@ -4322,7 +4354,13 @@ function AdminPanel(){
 
         {/* ── TARGETS TAB ── */}
         {adminTab==='targets'&&<Card>
-          <div style={{fontWeight:700,fontSize:16,color:B.ink,marginBottom:4}}>🎯 Set Monthly Targets</div>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:4,flexWrap:'wrap',gap:8}}>
+            <div style={{fontWeight:700,fontSize:16,color:B.ink}}>🎯 Set Monthly Targets</div>
+            <button onClick={resetMonthlyTargets}
+              style={{padding:'7px 16px',background:B.redBg,color:B.red,border:`1px solid ${B.red}`,borderRadius:10,fontSize:12,fontWeight:700,cursor:'pointer'}}>
+              ↺ Reset All Targets for New Month
+            </button>
+          </div>
           <div style={{fontSize:12,color:B.muted,marginBottom:16}}>Saved to Firebase — visible on all devices instantly</div>
           <div style={{display:'flex',gap:8,marginBottom:14,flexWrap:'wrap'}}>
             <select value={selectedTL} onChange={e=>{setSelectedTL(e.target.value);setSelectedRM('');}}
@@ -4411,20 +4449,24 @@ function AdminPanel(){
               <thead><tr><th>RM Name</th><th>TL</th><th>City</th><th className="num">Clinics</th><th className="num">Leads</th><th>Actions</th></tr></thead>
               <tbody>
                 {filteredRMs.map((r,i)=>(
-                  <tr key={i}>
-                    <td><strong>{r.rm}</strong></td>
+                  <tr key={i} style={{opacity:r.inactive?0.5:1}}>
+                    <td><strong>{r.rm}</strong>{r.inactive&&<span style={{marginLeft:6,fontSize:10,background:'#FEE2E2',color:B.red,borderRadius:4,padding:'1px 6px',fontWeight:700}}>INACTIVE</span>}</td>
                     <td>{r.tl}</td>
                     <td>{r.city}</td>
                     <td className="num">{r.clinics?.length||0}</td>
                     <td className="num">{r.leads||0}</td>
                     <td>
-                      <div style={{display:'flex',gap:6}}>
+                      <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
                         <button onClick={()=>setEditRM({index:i,rm:r.rm,rmName:r.rm,tl:r.tl,city:r.city})}
                           style={{padding:'5px 12px',background:B.brandLight,color:B.brand,border:'none',borderRadius:8,fontSize:12,fontWeight:600,cursor:'pointer'}}>
                           ✏️ Edit
                         </button>
+                        <button onClick={()=>toggleInactive(r)}
+                          style={{padding:'5px 12px',background:r.inactive?'#F0FDF4':B.amberBg,color:r.inactive?B.green:B.amber,border:'none',borderRadius:8,fontSize:12,fontWeight:600,cursor:'pointer'}}>
+                          {r.inactive?'✓ Reactivate':'⏸ Inactive'}
+                        </button>
                         <button onClick={()=>handleRemoveRM(i)}
-                          style={{padding:'5px 12px',background:B.redBg,color:B.red,border:'none',borderRadius:8,fontSize:12,fontWeight:600,cursor:'pointer',marginLeft:6}}>
+                          style={{padding:'5px 12px',background:B.redBg,color:B.red,border:'none',borderRadius:8,fontSize:12,fontWeight:600,cursor:'pointer'}}>
                           🗑️ Remove
                         </button>
                       </div>
