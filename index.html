@@ -745,6 +745,14 @@ async function pushPaymentToSheet(date,tl,city,rm,is,amount){
 let _pendingPayments=[]; // app-entered payments not yet confirmed in sheet
 
 function formatSheetDate(iso){const[y,m,d]=iso.split('-');return`${d}/${m}/${y}`;}
+function toTitleCase(s){return(s||'').replace(/\b\w/g,c=>c.toUpperCase());}
+
+async function deletePending(pid){
+  _pendingPayments=_pendingPayments.filter(r=>r._pid!==pid);
+  _cache.payment_rows=(_cache.payment_rows||[]).filter(r=>r._pid!==pid);
+  await savePendingToFirestore();
+  window.dispatchEvent(new Event('rmDataUpdated'));
+}
 
 async function loadPendingFromFirestore(){
   try{
@@ -775,7 +783,7 @@ async function submitPaymentEntry({rm,tl,city,date,amount,is:isName=''}){
     const resp=await fetch(SHEET_SCRIPT_URL,{
       method:'POST',
       headers:{'Content-Type':'text/plain'},
-      body:JSON.stringify({action:'addPayment',date:row.date,tl:row.tlDisplay,rm:row.rmDisplay,city:row.city,is:isName,amount})
+      body:JSON.stringify({action:'addPayment',date:row.date,tl:toTitleCase(row.tlDisplay),rm:toTitleCase(row.rmDisplay),city:toTitleCase(row.city),is:toTitleCase(isName),amount})
     });
     const j=await resp.json().catch(()=>({}));
     if(j.status==='ok'){
@@ -3815,9 +3823,9 @@ function doPost(e) {
     setRetrying(r=>({...r,[p._pid]:true}));
     const rmData=ALL_RMS.find(r=>r.rm.toLowerCase()===(p.rm||'').toLowerCase());
     const res=await submitPaymentEntry({
-      rm:p.rmDisplay||p.rm,
-      tl:p.tlDisplay||p.tl,
-      city:p.city||rmData?.city||'',
+      rm:toTitleCase(p.rmDisplay||p.rm),
+      tl:toTitleCase(p.tlDisplay||p.tl),
+      city:toTitleCase(p.city||rmData?.city||''),
       is:p.is||'',
       date:(()=>{const[d,m,y]=p.date.split('/');return`${y}-${m}-${d}`;})(),
       amount:p.amount
@@ -3840,14 +3848,20 @@ function doPost(e) {
           :<div style={{display:'flex',flexDirection:'column',gap:8}}>
             {pending.map(p=>(
               <div key={p._pid} style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'10px 14px',background:B.bg,borderRadius:10,gap:12,flexWrap:'wrap'}}>
-                <div>
-                  <div style={{fontSize:13,fontWeight:700,color:B.ink}}>{p.rm} <span style={{color:B.muted,fontWeight:500}}>({p.tl})</span></div>
-                  <div style={{fontSize:12,color:B.muted,marginTop:2}}>{p.date} · ₹{Number(p.amount).toLocaleString('en-IN')}</div>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:13,fontWeight:700,color:B.ink}}>{toTitleCase(p.rmDisplay||p.rm)} <span style={{color:B.muted,fontWeight:500}}>({toTitleCase(p.tlDisplay||p.tl)})</span></div>
+                  <div style={{fontSize:12,color:B.muted,marginTop:2}}>{p.date} · ₹{Number(p.amount).toLocaleString('en-IN')}{p.is&&<> · IS: {p.is}</>}</div>
                 </div>
-                <button onClick={()=>retryOne(p)} disabled={retrying[p._pid]}
-                  style={{padding:'7px 16px',background:retrying[p._pid]?B.muted:B.brand,color:'#fff',border:'none',borderRadius:8,fontSize:12,fontWeight:700,cursor:retrying[p._pid]?'default':'pointer',flexShrink:0}}>
-                  {retrying[p._pid]?'Retrying…':'Retry sync'}
-                </button>
+                <div style={{display:'flex',gap:8,flexShrink:0}}>
+                  <button onClick={()=>retryOne(p)} disabled={retrying[p._pid]}
+                    style={{padding:'7px 16px',background:retrying[p._pid]?B.muted:B.brand,color:'#fff',border:'none',borderRadius:8,fontSize:12,fontWeight:700,cursor:retrying[p._pid]?'default':'pointer'}}>
+                    {retrying[p._pid]?'Retrying…':'Retry sync'}
+                  </button>
+                  <button onClick={async()=>{await deletePending(p._pid);setPending([..._pendingPayments]);}}
+                    style={{padding:'7px 12px',background:'none',border:`1px solid ${B.red}`,color:B.red,borderRadius:8,fontSize:12,fontWeight:700,cursor:'pointer'}}>
+                    Delete
+                  </button>
+                </div>
               </div>
             ))}
           </div>
