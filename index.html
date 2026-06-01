@@ -993,7 +993,8 @@ function DesktopSideNav({screen,setScreen,user,onLogout,previewUser,setPreviewUs
   const rmOptions=ALL_RMS.map(r=>({name:r.rm,role:'rm',city:r.city||''}));
   const tlNames=[...new Set(ALL_RMS.map(r=>r.tl).filter(Boolean))];
   const tlOptions=tlNames.map(n=>({name:n,role:'tl',city:''}));
-  const allOptions=[...tlOptions,...rmOptions];
+  const isOptions=IS_NAMES.map(i=>({name:i.name,role:'is',city:''}));
+  const allOptions=[...tlOptions,...rmOptions,...isOptions];
   const[ddOpen,setDdOpen]=useState(false);
   const selectedLabel=previewUser?previewUser.name:'— Admin view —';
   const choose=(opt)=>{setPreviewUser(opt||null);setDdOpen(false);};
@@ -1035,6 +1036,13 @@ function DesktopSideNav({screen,setScreen,user,onLogout,previewUser,setPreviewUs
             <div key={o.name} onClick={()=>choose(o)} style={{padding:'8px 12px',fontSize:12,color:previewUser?.name===o.name?B.brand:B.ink,fontWeight:previewUser?.name===o.name?700:400,cursor:'pointer'}}
               onMouseEnter={e=>e.currentTarget.style.background='#F1F5F9'} onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
               {o.name}
+            </div>
+          ))}
+          {isOptions.length>0&&<div style={{padding:'5px 12px 2px',fontSize:10,color:B.muted,fontWeight:700,textTransform:'uppercase',letterSpacing:'.5px'}}>Inside Sales</div>}
+          {isOptions.map(o=>(
+            <div key={o.name} onClick={()=>choose(o)} style={{padding:'8px 12px',fontSize:12,color:previewUser?.name===o.name?B.brand:B.ink,fontWeight:previewUser?.name===o.name?700:400,cursor:'pointer'}}
+              onMouseEnter={e=>e.currentTarget.style.background='#F1F5F9'} onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+              {toTitleCase(o.name)}
             </div>
           ))}
         </div>
@@ -4829,7 +4837,9 @@ function FullAccessView({user,onLogout}){
         <div style={{paddingTop:36}}>
           {previewUser.role==='tl'
             ?<TLView user={previewUser} onLogout={exitPreview}/>
-            :<RMView user={previewUser} onLogout={exitPreview}/>
+            :previewUser.role==='is'
+              ?<ISUserView user={previewUser} onLogout={exitPreview}/>
+              :<RMView user={previewUser} onLogout={exitPreview}/>
           }
         </div>
       </div>
