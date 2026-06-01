@@ -775,7 +775,7 @@ async function submitPaymentEntry({rm,tl,city,date,amount}){
     const resp=await fetch(SHEET_SCRIPT_URL,{
       method:'POST',
       headers:{'Content-Type':'text/plain'},
-      body:JSON.stringify({action:'addPayment',date:row.date,rm_name:rm,tl_name:tl,city,amount})
+      body:JSON.stringify({action:'addPayment',date:row.date,tl,rm,city,amount})
     });
     const j=await resp.json().catch(()=>({}));
     if(j.status==='ok'){
