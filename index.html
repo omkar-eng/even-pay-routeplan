@@ -601,6 +601,7 @@ async function syncFromGoogleSheet({silent=false}={}){
       date:_payDateKey?String(p[_payDateKey]||'').trim():'',
       rm:(()=>{const raw=(p['Rm Name']||'').trim().toLowerCase();const matched=rawToTarget[raw];if(matched){const disp=rmDisplayName[matched];return disp?disp.toLowerCase():matched;}return raw;})(),
       tl:(p['ATL/TL Name']||'').trim().toLowerCase(),
+      is:(p['IS Name']||'').trim().toLowerCase(),
       amount:parseFloat(p.Amount)||0
     })).filter(r=>r.amount>0);
     _cache.payment_rows=rawPayRows;
@@ -947,7 +948,7 @@ function downloadCSV(headers,rows,filename){
 }
 
 // Mobile nav
-  const FULL_NAV=[['route','🗺️','Routes'],['teams','👥','Teams'],['zone','📊','Zone'],['admin','⚙️','Admin']];
+  const FULL_NAV=[['route','🗺️','Routes'],['teams','👥','Teams'],['zone','📊','Zone'],['is','📞','IS'],['admin','⚙️','Admin']];
 function FullNav({screen,setScreen}){
   return <div style={{position:'fixed',bottom:0,left:'50%',transform:'translateX(-50%)',width:'100%',maxWidth:600,background:B.white,borderTop:`1px solid ${B.line}`,display:'flex',zIndex:100,boxShadow:'0 -4px 20px rgba(35,80,255,.1)'}}>
     {FULL_NAV.map(([id,icon,lbl])=>(
@@ -962,7 +963,7 @@ function FullNav({screen,setScreen}){
 
 // Desktop sidebar nav for full access
 function DesktopSideNav({screen,setScreen,user,onLogout,previewUser,setPreviewUser,onAddPayment,pendingCount}){
-  const items=[['route','🗺️','Route Plan'],['teams','👥','All Teams'],['zone','📊','Zone Overview'],['admin','⚙️','Admin']];
+  const items=[['route','🗺️','Route Plan'],['teams','👥','All Teams'],['zone','📊','Zone Overview'],['is','📞','IS Payments'],['admin','⚙️','Admin']];
   const rmOptions=ALL_RMS.map(r=>({name:r.rm,role:'rm',city:r.city||''}));
   const tlNames=[...new Set(ALL_RMS.map(r=>r.tl).filter(Boolean))];
   const tlOptions=tlNames.map(n=>({name:n,role:'tl',city:''}));
@@ -2959,10 +2960,15 @@ function AddPaymentModal({onClose}){
 
       <div style={{marginBottom:14}}>
         <div style={{fontSize:11,fontWeight:700,color:B.muted,textTransform:'uppercase',letterSpacing:'.5px',marginBottom:6}}>IS (Inside Sales)</div>
-        <input type="text" value={isName} onChange={e=>setIsName(e.target.value)}
-          placeholder="Inside Sales name (optional)"
+        <input list="is-datalist" value={isName} onChange={e=>setIsName(e.target.value)}
+          placeholder="Select or type IS name (optional)"
           style={{width:'100%',padding:'11px 14px',border:`1.5px solid ${B.line}`,borderRadius:10,fontSize:14,outline:'none',boxSizing:'border-box'}}
           onFocus={e=>e.target.style.borderColor=B.brand} onBlur={e=>e.target.style.borderColor=B.line}/>
+        <datalist id="is-datalist">
+          {[...new Set((_cache.payment_rows||[]).map(r=>r.is).filter(Boolean))].sort().map(n=>(
+            <option key={n} value={toTitleCase(n)}/>
+          ))}
+        </datalist>
       </div>
 
       <div style={{display:'flex',gap:12,marginBottom:14}}>
@@ -4558,6 +4564,141 @@ function AdminPanel(){
   );
 }
 
+// ── IS PAYMENTS VIEW ───────────────────────────────────────────────────────
+function ISPaymentsView(){
+  const isMobile=useIsMobile();
+  const[cityF,setCityF]=useState('All');
+  const[expanded,setExpanded]=useState(null);
+
+  const rows=_cache.payment_rows||[];
+
+  // All cities from RM mapping for IS-associated payments
+  const cities=['All',...[...new Set(
+    rows.filter(r=>r.is).map(r=>ALL_RMS.find(rm=>rm.rm.toLowerCase()===r.rm)?.city).filter(Boolean)
+  )].sort()];
+
+  // Filter and aggregate by IS
+  const filtered=rows.filter(r=>{
+    if(!r.is)return false;
+    if(cityF!=='All'){
+      const c=ALL_RMS.find(rm=>rm.rm.toLowerCase()===r.rm)?.city;
+      if(c!==cityF)return false;
+    }
+    return true;
+  });
+
+  const isMap={};
+  filtered.forEach(r=>{
+    const key=r.is;
+    if(!isMap[key]){
+      const city=ALL_RMS.find(rm=>rm.rm.toLowerCase()===r.rm)?.city||'';
+      isMap[key]={name:r.is,city,amount:0,count:0,rms:{}};
+    }
+    isMap[key].amount+=r.amount;
+    isMap[key].count+=1;
+    const rm=r.rm;
+    if(!isMap[key].rms[rm])isMap[key].rms[rm]={rm,amount:0,count:0};
+    isMap[key].rms[rm].amount+=r.amount;
+    isMap[key].rms[rm].count+=1;
+  });
+
+  const isList=Object.values(isMap).sort((a,b)=>b.amount-a.amount);
+  const grandTotal=isList.reduce((s,r)=>s+r.amount,0);
+
+  const fmt=n=>'₹'+(n/100000).toFixed(1)+'L';
+
+  return(
+    <div style={{background:B.bg,minHeight:'100vh',paddingBottom:isMobile?90:20,padding:isMobile?'0 0 90px':20}}>
+
+      {/* Header */}
+      <div style={{background:'linear-gradient(135deg,#1E1B4B,#4338CA)',padding:isMobile?'22px 18px 18px':'20px 24px',borderRadius:isMobile?'0 0 28px 28px':16,marginBottom:16}}>
+        <div style={{color:'rgba(255,255,255,.65)',fontSize:12,marginBottom:4}}>Inside Sales</div>
+        <div style={{color:'#fff',fontSize:22,fontWeight:800}}>IS Payments</div>
+        <div style={{color:'rgba(255,255,255,.7)',fontSize:13,marginTop:4}}>
+          {fmt(grandTotal)} across {isList.length} IS reps · {filtered.length} payments
+        </div>
+      </div>
+
+      <div style={{padding:isMobile?'0 14px':'0'}}>
+
+        {/* City filter */}
+        {cities.length>2&&<div style={{display:'flex',gap:8,overflowX:'auto',marginBottom:14,paddingBottom:4}}>
+          {cities.map(c=>(
+            <button key={c} onClick={()=>setCityF(c)}
+              style={{padding:'6px 14px',borderRadius:20,border:`1.5px solid ${cityF===c?B.brand:B.line}`,background:cityF===c?B.brand:'#fff',color:cityF===c?'#fff':B.ink,fontSize:12,fontWeight:cityF===c?700:400,cursor:'pointer',whiteSpace:'nowrap',flexShrink:0}}>
+              {c}
+            </button>
+          ))}
+        </div>}
+
+        {isList.length===0
+          ?<Card><div style={{fontSize:13,color:B.muted,padding:'12px 0',textAlign:'center'}}>No IS payments found{cityF!=='All'?` for ${cityF}`:''}.{'\n'}IS names are read from the "IS Name" column in your payments sheet.</div></Card>
+          :<>
+            {/* Summary table */}
+            <Card style={{padding:0,overflow:'hidden',marginBottom:16}}>
+              <table style={{width:'100%',borderCollapse:'collapse'}}>
+                <thead>
+                  <tr style={{background:B.bg}}>
+                    <th style={{padding:'10px 16px',textAlign:'left',fontSize:11,color:B.muted,fontWeight:700,textTransform:'uppercase',letterSpacing:'.4px'}}>IS Name</th>
+                    {!isMobile&&<th style={{padding:'10px 16px',textAlign:'left',fontSize:11,color:B.muted,fontWeight:700,textTransform:'uppercase',letterSpacing:'.4px'}}>City</th>}
+                    <th style={{padding:'10px 16px',textAlign:'right',fontSize:11,color:B.muted,fontWeight:700,textTransform:'uppercase',letterSpacing:'.4px'}}>Payments</th>
+                    <th style={{padding:'10px 16px',textAlign:'right',fontSize:11,color:B.muted,fontWeight:700,textTransform:'uppercase',letterSpacing:'.4px'}}>Total</th>
+                    <th style={{width:32}}></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {isList.map((is,i)=>{
+                    const isOpen=expanded===is.name;
+                    const rmList=Object.values(is.rms).sort((a,b)=>b.amount-a.amount);
+                    return(
+                      <React.Fragment key={is.name}>
+                        <tr onClick={()=>setExpanded(isOpen?null:is.name)}
+                          style={{borderTop:`1px solid ${B.line}`,cursor:'pointer',background:isOpen?B.brandLight:'transparent'}}>
+                          <td style={{padding:'12px 16px'}}>
+                            <div style={{fontWeight:700,fontSize:13,color:B.ink}}>{toTitleCase(is.name)}</div>
+                            {isMobile&&<div style={{fontSize:11,color:B.muted,marginTop:2}}>{is.city}</div>}
+                          </td>
+                          {!isMobile&&<td style={{padding:'12px 16px',fontSize:13,color:B.muted}}>{is.city}</td>}
+                          <td style={{padding:'12px 16px',textAlign:'right',fontSize:13,color:B.muted}}>{is.count}</td>
+                          <td style={{padding:'12px 16px',textAlign:'right',fontWeight:700,fontSize:13,color:B.brand}}>{fmt(is.amount)}</td>
+                          <td style={{padding:'12px 8px',textAlign:'center',fontSize:12,color:B.muted}}>{isOpen?'▲':'▼'}</td>
+                        </tr>
+                        {isOpen&&<tr style={{background:B.brandLight}}>
+                          <td colSpan={isMobile?4:5} style={{padding:'0 16px 14px'}}>
+                            <div style={{fontSize:11,color:B.brand,fontWeight:700,textTransform:'uppercase',letterSpacing:'.4px',marginBottom:8}}>Linked RMs</div>
+                            <div style={{display:'flex',flexDirection:'column',gap:6}}>
+                              {rmList.map(r=>(
+                                <div key={r.rm} style={{display:'flex',justifyContent:'space-between',alignItems:'center',background:'#fff',borderRadius:8,padding:'8px 12px'}}>
+                                  <div>
+                                    <div style={{fontSize:12,fontWeight:700,color:B.ink}}>{toTitleCase(r.rm)}</div>
+                                    <div style={{fontSize:11,color:B.muted}}>{r.count} payment{r.count!==1?'s':''}</div>
+                                  </div>
+                                  <div style={{fontSize:13,fontWeight:700,color:B.brand}}>{fmt(r.amount)}</div>
+                                </div>
+                              ))}
+                            </div>
+                          </td>
+                        </tr>}
+                      </React.Fragment>
+                    );
+                  })}
+                </tbody>
+                <tfoot>
+                  <tr style={{borderTop:`2px solid ${B.line}`,background:B.bg}}>
+                    <td colSpan={isMobile?2:3} style={{padding:'10px 16px',fontSize:12,fontWeight:700,color:B.ink}}>Total</td>
+                    <td style={{padding:'10px 16px',textAlign:'right',fontSize:13,fontWeight:800,color:B.brand}}>{fmt(grandTotal)}</td>
+                    <td></td>
+                  </tr>
+                </tfoot>
+              </table>
+            </Card>
+          </>
+        }
+      </div>
+    </div>
+  );
+}
+
 // ── FULL ACCESS VIEW ───────────────────────────────────────────────────────
 function FullAccessView({user,onLogout}){
   const[screen,setScreen]=useState('zone');
@@ -4600,6 +4741,7 @@ function FullAccessView({user,onLogout}){
     {screen==='zone'&&<ZoneOverviewPanel key={dataVer}/>}
     {screen==='route'&&<RoutePlanPanel user={user}/>}
     {screen==='teams'&&<AllTeamsPanel key={dataVer}/>}
+    {screen==='is'&&<ISPaymentsView key={dataVer}/>}
     {screen==='admin'&&<AdminPanel/>}
   </>;
   if(isMobile) return(
