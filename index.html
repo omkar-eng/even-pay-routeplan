@@ -773,7 +773,7 @@ function mergePendingIntoPaymentRows(){
 }
 
 async function submitPaymentEntry({rm,tl,city,date,amount,is:isName=''}){
-  const row={date:formatSheetDate(date),rm:rm.toLowerCase(),tl:tl.toLowerCase(),rmDisplay:rm,tlDisplay:tl,is:isName,city,amount,_pid:Date.now(),pending:true};
+  const row={date:formatSheetDate(date),rm:rm.toLowerCase(),tl:tl.toLowerCase(),rmDisplay:rm,tlDisplay:tl,is:isName.trim().toLowerCase(),city,amount,_pid:Date.now(),pending:true};
   // 1. Save to local pending + Firestore immediately so it shows in app
   _pendingPayments=[..._pendingPayments,row];
   _cache.payment_rows=[...(_cache.payment_rows||[]),row];
@@ -835,6 +835,32 @@ const ZONE={
 };
 
 const ALL_RMS=[
+];
+
+// Canonical IS names — lowercase to match payment_rows.is
+const IS_NAMES=[
+  'aakansha kumari lohani',
+  'aman',
+  'aman bhaesare',
+  'aniket sahu',
+  'archana raju mane',
+  'arya nirawane',
+  'jayraj',
+  'karan',
+  'mamta l',
+  'nikhil',
+  'payal r',
+  'purva ramteke',
+  'ranajit biswas',
+  'riya mukharji',
+  'safia',
+  'sagar jalkote',
+  'sakshika suman',
+  'sanket',
+  'sanmoy banerjee',
+  'tejasvini',
+  'udit pandey',
+  'vrushabh',
 ];
 
 // ── APPLY STORE → GLOBALS ─────────────────────────────────────────────────
@@ -2965,7 +2991,7 @@ function AddPaymentModal({onClose}){
           style={{width:'100%',padding:'11px 14px',border:`1.5px solid ${B.line}`,borderRadius:10,fontSize:14,outline:'none',boxSizing:'border-box'}}
           onFocus={e=>e.target.style.borderColor=B.brand} onBlur={e=>e.target.style.borderColor=B.line}/>
         <datalist id="is-datalist">
-          {[...new Set((_cache.payment_rows||[]).map(r=>r.is).filter(Boolean))].sort().map(n=>(
+          {[...new Set([...IS_NAMES,...(_cache.payment_rows||[]).map(r=>r.is).filter(Boolean)])].sort().map(n=>(
             <option key={n} value={toTitleCase(n)}/>
           ))}
         </datalist>
@@ -3684,7 +3710,7 @@ function UsersTab(){
               : newUser.role==='tl'
                 ? selEl(newUser.name,v=>setNewUser({...newUser,name:v}),[{v:'',l:'Pick TL from list…'},...tls])
                 : newUser.role==='is'
-                  ? selEl(newUser.name,v=>setNewUser({...newUser,name:v}),[{v:'',l:'Pick IS from list…'},...[...new Set((_cache.payment_rows||[]).map(r=>r.is).filter(Boolean))].sort().map(n=>({v:n,l:toTitleCase(n)}))])
+                  ? selEl(newUser.name,v=>setNewUser({...newUser,name:v}),[{v:'',l:'Pick IS from list…'},...IS_NAMES.map(n=>({v:n,l:toTitleCase(n)}))])
                   : inp(newUser.name,v=>setNewUser({...newUser,name:v}),'e.g. Omkar')}
           </div>
           <div>
