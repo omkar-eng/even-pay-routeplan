@@ -764,7 +764,7 @@ function mergePendingIntoPaymentRows(){
 }
 
 async function submitPaymentEntry({rm,tl,city,date,amount,is:isName=''}){
-  const row={date:formatSheetDate(date),rm:rm.toLowerCase(),tl:tl.toLowerCase(),is:isName,city,amount,_pid:Date.now(),pending:true};
+  const row={date:formatSheetDate(date),rm:rm.toLowerCase(),tl:tl.toLowerCase(),rmDisplay:rm,tlDisplay:tl,is:isName,city,amount,_pid:Date.now(),pending:true};
   // 1. Save to local pending + Firestore immediately so it shows in app
   _pendingPayments=[..._pendingPayments,row];
   _cache.payment_rows=[...(_cache.payment_rows||[]),row];
@@ -775,7 +775,7 @@ async function submitPaymentEntry({rm,tl,city,date,amount,is:isName=''}){
     const resp=await fetch(SHEET_SCRIPT_URL,{
       method:'POST',
       headers:{'Content-Type':'text/plain'},
-      body:JSON.stringify({action:'addPayment',date:row.date,tl,rm,city,is:isName,amount})
+      body:JSON.stringify({action:'addPayment',date:row.date,tl:row.tlDisplay,rm:row.rmDisplay,city:row.city,is:isName,amount})
     });
     const j=await resp.json().catch(()=>({}));
     if(j.status==='ok'){
@@ -2950,9 +2950,9 @@ function AddPaymentModal({onClose}){
       </div>}
 
       <div style={{marginBottom:14}}>
-        <div style={{fontSize:11,fontWeight:700,color:B.muted,textTransform:'uppercase',letterSpacing:'.5px',marginBottom:6}}>IS Name</div>
+        <div style={{fontSize:11,fontWeight:700,color:B.muted,textTransform:'uppercase',letterSpacing:'.5px',marginBottom:6}}>IS (Inside Sales)</div>
         <input type="text" value={isName} onChange={e=>setIsName(e.target.value)}
-          placeholder="Insurance Specialist name (optional)"
+          placeholder="Inside Sales name (optional)"
           style={{width:'100%',padding:'11px 14px',border:`1.5px solid ${B.line}`,borderRadius:10,fontSize:14,outline:'none',boxSizing:'border-box'}}
           onFocus={e=>e.target.style.borderColor=B.brand} onBlur={e=>e.target.style.borderColor=B.line}/>
       </div>
@@ -3813,7 +3813,15 @@ function doPost(e) {
 
   async function retryOne(p){
     setRetrying(r=>({...r,[p._pid]:true}));
-    const res=await submitPaymentEntry({rm:p.rm,tl:p.tl,city:p.city||'',is:p.is||'',date:(()=>{const[d,m,y]=p.date.split('/');return`${y}-${m}-${d}`;})(),amount:p.amount});
+    const rmData=ALL_RMS.find(r=>r.rm.toLowerCase()===(p.rm||'').toLowerCase());
+    const res=await submitPaymentEntry({
+      rm:p.rmDisplay||p.rm,
+      tl:p.tlDisplay||p.tl,
+      city:p.city||rmData?.city||'',
+      is:p.is||'',
+      date:(()=>{const[d,m,y]=p.date.split('/');return`${y}-${m}-${d}`;})(),
+      amount:p.amount
+    });
     setPending([..._pendingPayments]);
     setRetrying(r=>({...r,[p._pid]:false}));
   }
