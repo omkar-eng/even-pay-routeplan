@@ -601,7 +601,7 @@ async function syncFromGoogleSheet({silent=false}={}){
       date:_payDateKey?String(p[_payDateKey]||'').trim():'',
       rm:(()=>{const raw=(p['Rm Name']||'').trim().toLowerCase();const matched=rawToTarget[raw];if(matched){const disp=rmDisplayName[matched];return disp?disp.toLowerCase():matched;}return raw;})(),
       tl:(p['ATL/TL Name']||'').trim().toLowerCase(),
-      is:(p['IS Name']||'').trim().toLowerCase(),
+      is:matchISName(p['IS Name']||''),
       amount:parseFloat(p.Amount)||0
     })).filter(r=>r.amount>0);
     _cache.payment_rows=rawPayRows;
@@ -748,6 +748,33 @@ let _pendingPayments=[]; // app-entered payments not yet confirmed in sheet
 function formatSheetDate(iso){const[y,m,d]=iso.split('-');return`${d}/${m}/${y}`;}
 function toTitleCase(s){return(s||'').replace(/\b\w/g,c=>c.toUpperCase());}
 
+function normalizeIS(s){
+  return(s||'').trim().toLowerCase().replace(/[._\-]+/g,' ').replace(/\s+/g,' ').trim();
+}
+function matchISName(raw){
+  const norm=normalizeIS(raw);
+  if(!norm)return '';
+  // Pass 1: exact match after normalization
+  const exact=IS_NAMES.find(i=>normalizeIS(i.name)===norm);
+  if(exact)return exact.name;
+  // Pass 2: edit distance on first word (handles minor spelling diffs)
+  const rawFw=norm.split(' ')[0];
+  let best=null,bestD=Infinity;
+  for(const i of IS_NAMES){
+    const d=_editDist(normalizeIS(i.name).split(' ')[0],rawFw);
+    if(d<=1&&d<bestD){bestD=d;best=i;}
+  }
+  if(best)return best.name;
+  // Pass 3: full-name edit distance (catches transpositions etc.)
+  let best3=null,best3D=Infinity;
+  for(const i of IS_NAMES){
+    const d=_editDist(normalizeIS(i.name),norm);
+    if(d<=3&&d<best3D){best3D=d;best3=i;}
+  }
+  if(best3)return best3.name;
+  return norm;
+}
+
 async function deletePending(pid){
   _pendingPayments=_pendingPayments.filter(r=>r._pid!==pid);
   _cache.payment_rows=(_cache.payment_rows||[]).filter(r=>r._pid!==pid);
@@ -773,7 +800,7 @@ function mergePendingIntoPaymentRows(){
 }
 
 async function submitPaymentEntry({rm,tl,city,date,amount,is:isName=''}){
-  const row={date:formatSheetDate(date),rm:rm.toLowerCase(),tl:tl.toLowerCase(),rmDisplay:rm,tlDisplay:tl,is:isName.trim().toLowerCase(),city,amount,_pid:Date.now(),pending:true};
+  const row={date:formatSheetDate(date),rm:rm.toLowerCase(),tl:tl.toLowerCase(),rmDisplay:rm,tlDisplay:tl,is:matchISName(isName),city,amount,_pid:Date.now(),pending:true};
   // 1. Save to local pending + Firestore immediately so it shows in app
   _pendingPayments=[..._pendingPayments,row];
   _cache.payment_rows=[...(_cache.payment_rows||[]),row];
