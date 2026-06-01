@@ -1217,7 +1217,7 @@ function RMView({user,onLogout}){
 
       {/* Tab nav */}
       <div style={{background:B.white,display:'flex',borderBottom:`1px solid ${B.line}`,padding:'0 8px'}}>
-        {[['targets','My Targets'],['payments','Payments'],['route','Route Plan']].map(([id,lbl])=>(
+        {[['targets','My Targets'],['payments','Payments'],['chart','Chart'],['route','Route Plan']].map(([id,lbl])=>(
           <button key={id} onClick={()=>setTab(id)} style={{flex:1,padding:'12px 4px',background:'none',border:'none',borderBottom:tab===id?`3px solid ${B.brand}`:'3px solid transparent',color:tab===id?B.brand:B.muted,fontWeight:tab===id?700:500,fontSize:13,cursor:'pointer',whiteSpace:'nowrap'}}>
             {lbl}
           </button>
@@ -1270,7 +1270,6 @@ function RMView({user,onLogout}){
                 <div style={{fontSize:12,color:B.brand,fontWeight:600}}>{payDateRange==='All Time'?'All payments':'Payments · '+payLabel}</div>
                 <div style={{fontSize:18,fontWeight:800,color:B.brand}}>{fmtN(total)}</div>
               </div>
-              <MonthlyPaymentsChart rows={allMyRows}/>
               {myRows.length===0?(
                 <div style={{textAlign:'center',padding:'32px 0',color:B.muted,fontSize:13}}>
                   {allMyRows.length===0?'No payment data yet. Sync from sheet to load payments.':'No payments in this date range.'}
@@ -1298,6 +1297,12 @@ function RMView({user,onLogout}){
               )}
             </>
           );
+        })()}
+
+        {tab==='chart'&&(()=>{
+          const rmLo=rm.rm.toLowerCase();
+          const chartRows=(_cache.payment_rows||[]).filter(r=>r.rm===rmLo);
+          return <MonthlyPaymentsChart rows={chartRows}/>;
         })()}
 
         {tab==='targets'&&<>
@@ -1363,6 +1368,7 @@ function TLView({user,onLogout}){
   const ach=filtData?myRMs.reduce((s,r)=>s+(filtData.rmPayments[r.rm.toLowerCase()]||0),0):myRMs.reduce((s,r)=>s+r.achieved,0);
 
   const TeamView=()=>{
+    const[showChart,setShowChart]=useState(false);
     const behind=myRMs.filter(r=>pct(r.achieved,r.target)<60);
     const totMthlyTgt=myRMs.reduce((s,r)=>s+r.monthlyTgt,0);
     const totMthlyAchv=myRMs.reduce((s,r)=>s+r.monthlyAchv,0);
@@ -1442,12 +1448,17 @@ function TLView({user,onLogout}){
             <StatCard title="On Track" value={myRMs.filter(r=>pct(r.achieved,r.target)>=80).length+'/'+myRMs.length} icon="✅"/>
             <StatCard title="Behind Target" value={String(behind.length)} icon="⚠️"/>
           </div>
-          <MonthlyPaymentsChart rows={(()=>{const rlos=new Set(myRMs.map(r=>r.rm.toLowerCase()));return(_cache.payment_rows||[]).filter(r=>rlos.has(r.rm));})()}  title="Month-on-Month Payments"/>
         </div>
         <div style={{padding:'0 28px 24px'}}>
           <div style={{background:B.white,borderRadius:16,boxShadow:'0 2px 12px rgba(0,0,0,.06)',overflow:'hidden',border:`1px solid ${B.line}`}}>
-            <div style={{padding:'14px 18px',borderBottom:`1px solid ${B.line}`,fontWeight:700,fontSize:14,color:B.navy}}>RM Performance — {dateRange}</div>
-            <div style={{overflowX:'auto'}}>
+            <div style={{padding:'14px 18px',borderBottom:`1px solid ${B.line}`,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+              <div style={{fontWeight:700,fontSize:14,color:B.navy}}>{showChart?'Payments Chart':'RM Performance'} — {dateRange}</div>
+              <button onClick={()=>setShowChart(s=>!s)} style={{padding:'6px 14px',borderRadius:8,border:`1.5px solid ${B.brand}`,background:showChart?B.brand:B.white,color:showChart?'#fff':B.brand,fontSize:12,fontWeight:600,cursor:'pointer'}}>
+                {showChart?'Show Table':'Payments Chart'}
+              </button>
+            </div>
+            {showChart&&<div style={{padding:'20px'}}><MonthlyPaymentsChart rows={(()=>{const rlos=new Set(myRMs.map(r=>r.rm.toLowerCase()));return(_cache.payment_rows||[]).filter(r=>rlos.has(r.rm));})()}/></div>}
+            {!showChart&&<div style={{overflowX:'auto'}}>
               <table style={{width:'100%',borderCollapse:'collapse',fontSize:13,minWidth:700}}>
                 <thead>
                   <tr>
@@ -1509,7 +1520,7 @@ function TLView({user,onLogout}){
                   </tr>
                 </tfoot>
               </table>
-            </div>
+            </div>}
           </div>
         </div>
       </div>
@@ -2629,7 +2640,6 @@ function AllTeamsPanel(){
         Showing payments for: <strong>{dateRange==='Custom'?`${customFrom} to ${customTo}`:dateRange}</strong> — Total: <strong>{fmt(filtData.total)}</strong> across {filtData.rows.length} payment{filtData.rows.length!==1?'s':''}
       </div>}
       {selectedRM&&<RMPaymentsPanel rm={selectedRM}/>}
-      {!selectedRM&&<MonthlyPaymentsChart rows={cityF==='All'?(_cache.payment_rows||[]):(_cache.payment_rows||[]).filter(r=>ALL_RMS.find(rm=>rm.rm.toLowerCase()===r.rm)?.city===cityF)} title="Month-on-Month Payments"/>}
       <div style={{display:'flex',gap:16,marginBottom:24}}>
         <StatCard title="Zone Target" value={fmt(totTarget)} icon="🎯"/>
         <StatCard title={filtData?`Achieved (${dateRange})`:'Zone Achieved'} value={fmt(totAchv)} sub={`${zp}% of target`} icon="💰" highlight/>
@@ -2639,7 +2649,7 @@ function AllTeamsPanel(){
       <div style={{background:B.white,borderRadius:16,boxShadow:'0 2px 12px rgba(0,0,0,.06)',overflow:'hidden',border:`1px solid ${B.line}`}}>
         <div style={{padding:'14px 20px',display:'flex',justifyContent:'space-between',alignItems:'center',borderBottom:`1px solid ${B.line}`,flexWrap:'wrap',gap:10}}>
           <div style={{display:'flex',gap:4}}>
-            {[['tl','By TL'],['rm','All RMs']].map(([id,lbl])=>(
+            {[['tl','By TL'],['rm','All RMs'],['chart','Payments Chart']].map(([id,lbl])=>(
               <button key={id} onClick={()=>setTableView(id)} style={{padding:'7px 16px',borderRadius:8,border:`1.5px solid ${tableView===id?B.brand:B.line}`,background:tableView===id?B.brand:B.white,color:tableView===id?'#fff':B.muted,fontSize:12,fontWeight:600,cursor:'pointer'}}>{lbl}</button>
             ))}
             {tableView==='rm'&&<div style={{display:'flex',gap:4,marginLeft:8}}>
@@ -2648,7 +2658,7 @@ function AllTeamsPanel(){
               ))}
             </div>}
           </div>
-          <button onClick={()=>tableView==='tl'?downloadCSV(['TL','City','RMs','Target','Achieved','Target %'],tls.map(t=>[t.name,t.city,t.rms,t.target,t.achieved,pct(t.achieved,t.target)+'%']),'all_teams.csv'):downloadCSV(['RM','TL','City','Target','Achieved','Target %'],ALL_RMS.filter(r=>cityF==='All'||r.city===cityF).map(r=>[r.rm,r.tl,r.city,r.target,r.achieved,pct(r.achieved,r.target)+'%']),'all_rms.csv')} style={{background:B.navy,color:'#fff',border:'none',borderRadius:10,padding:'9px 18px',fontSize:12,fontWeight:700,cursor:'pointer'}}>Download CSV</button>
+          {tableView!=='chart'&&<button onClick={()=>tableView==='tl'?downloadCSV(['TL','City','RMs','Target','Achieved','Target %'],tls.map(t=>[t.name,t.city,t.rms,t.target,t.achieved,pct(t.achieved,t.target)+'%']),'all_teams.csv'):downloadCSV(['RM','TL','City','Target','Achieved','Target %'],ALL_RMS.filter(r=>cityF==='All'||r.city===cityF).map(r=>[r.rm,r.tl,r.city,r.target,r.achieved,pct(r.achieved,r.target)+'%']),'all_rms.csv')} style={{background:B.navy,color:'#fff',border:'none',borderRadius:10,padding:'9px 18px',fontSize:12,fontWeight:700,cursor:'pointer'}}>Download CSV</button>}
         </div>
         {tableView==='rm'&&(()=>{
           const allRMs=ALL_RMS.filter(r=>cityF==='All'||r.city===cityF);
@@ -2804,75 +2814,144 @@ function AllTeamsPanel(){
             </tfoot>
           </table>
         </div>
+        {tableView==='chart'&&<div style={{padding:'20px'}}><MonthlyPaymentsChart rows={cityF==='All'?(_cache.payment_rows||[]):(_cache.payment_rows||[]).filter(r=>ALL_RMS.find(rm=>rm.rm.toLowerCase()===r.rm)?.city===cityF)}/></div>}
       </div>
     </div>
   );
 }
 
 // ── MONTHLY PAYMENTS CHART ─────────────────────────────────────────────────
-function MonthlyPaymentsChart({rows,title}){
+function MonthlyPaymentsChart({rows}){
+  const[groupBy,setGroupBy]=useState('auto');
   const[hov,setHov]=useState(null);
-  const monthMap={};
-  (rows||[]).forEach(r=>{
-    const d=parsePayDate(r.date);if(!d)return;
-    const key=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
-    const lbl=d.toLocaleDateString('en-IN',{month:'short',year:'2-digit'});
-    if(!monthMap[key])monthMap[key]={key,rows:[],total:0,lbl};
-    monthMap[key].rows.push(r);monthMap[key].total+=r.amount;
-  });
-  const months=Object.values(monthMap).sort((a,b)=>a.key.localeCompare(b.key));
-  if(months.length===0)return(
-    <div style={{background:B.white,borderRadius:14,border:`1px solid ${B.line}`,padding:'20px',marginBottom:20,textAlign:'center',color:B.muted,fontSize:13}}>No payment history to chart yet</div>
+
+  const buildPts=(gBy)=>{
+    const map={};
+    (rows||[]).forEach(r=>{
+      const d=parsePayDate(r.date);if(!d)return;
+      const yr=d.getFullYear();const mo=String(d.getMonth()+1).padStart(2,'0');const dy=String(d.getDate()).padStart(2,'0');
+      let key,lbl;
+      if(gBy==='month'){
+        key=`${yr}-${mo}`;
+        lbl=d.toLocaleDateString('en-IN',{month:'short',year:'numeric'});
+      } else {
+        key=`${yr}-${mo}-${dy}`;
+        lbl=d.toLocaleDateString('en-IN',{day:'numeric',month:'short'});
+      }
+      if(!map[key])map[key]={key,rows:[],total:0,lbl};
+      map[key].rows.push(r);map[key].total+=r.amount;
+    });
+    return Object.values(map).sort((a,b)=>a.key.localeCompare(b.key));
+  };
+
+  let pts=buildPts(groupBy==='auto'?'day':groupBy);
+  if(groupBy==='auto'&&pts.length>45)pts=buildPts('month');
+
+  const datedCount=(rows||[]).filter(r=>parsePayDate(r.date)).length;
+  const grandTotal=(rows||[]).reduce((s,r)=>s+r.amount,0);
+
+  if(pts.length===0)return(
+    <div style={{background:B.white,borderRadius:16,border:`1px solid ${B.line}`,padding:'40px 24px',textAlign:'center',color:B.muted}}>
+      <div style={{fontSize:14,fontWeight:600,marginBottom:4}}>No chart data available</div>
+      <div style={{fontSize:12}}>{(rows||[]).length} payment rows · {datedCount} with parsed dates. Run a sync to load payment data.</div>
+    </div>
   );
-  const maxVal=Math.max(...months.map(m=>m.total),1);
-  const BW=44,BG=14,PX=12,CH=160,LH=34,TP=24;
-  const svgW=PX*2+months.length*(BW+BG)-BG;
-  const svgH=TP+CH+LH;
-  const bx=(i)=>PX+i*(BW+BG);
-  const bh=(v)=>Math.max(6,(v/maxVal)*CH);
-  const by=(v)=>TP+CH-bh(v);
-  const hM=hov?monthMap[hov.key]:null;
+
+  const maxVal=Math.max(...pts.map(p=>p.total),1);
+  const PL=54,PR=20,PT=20,PB=50;
+  const CW=Math.max(600,pts.length*54);
+  const CH=220;
+  const svgW=PL+CW+PR;const svgH=PT+CH+PB;
+  const px=(i)=>PL+(pts.length>1?i/(pts.length-1):0.5)*CW;
+  const py=(v)=>PT+CH-(v/maxVal)*CH;
+
+  const linePts=pts.map((p,i)=>`${px(i)},${py(p.total)}`).join(' ');
+  const areaPath=`M ${px(0)},${PT+CH} ${pts.map((p,i)=>`L ${px(i)},${py(p.total)}`).join(' ')} L ${px(pts.length-1)},${PT+CH} Z`;
+
+  const step=Math.max(1,Math.ceil(pts.length/10));
+  const hM=hov?pts.find(p=>p.key===hov.key):null;
+
   return(
-    <div style={{background:B.white,borderRadius:14,border:`1px solid ${B.line}`,padding:'16px 16px 10px',marginBottom:20,position:'relative'}}>
-      {title&&<div style={{fontSize:13,fontWeight:700,color:B.navy,marginBottom:12}}>{title}</div>}
-      <div style={{overflowX:'auto',WebkitOverflowScrolling:'touch'}}>
-        <svg width={Math.max(svgW,320)} height={svgH} style={{display:'block',overflow:'visible'}}>
-          {[0.25,0.5,0.75,1].map(f=>(
-            <line key={f} x1={0} y1={TP+CH*(1-f)} x2={Math.max(svgW,320)} y2={TP+CH*(1-f)} stroke='#EFF2F7' strokeWidth={1}/>
+    <div style={{background:B.white,borderRadius:16,border:`1px solid ${B.line}`,padding:'20px 20px 12px',position:'relative'}}>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16,flexWrap:'wrap',gap:8}}>
+        <div>
+          <div style={{fontSize:14,fontWeight:700,color:B.navy}}>Payments over time</div>
+          <div style={{fontSize:11,color:B.muted,marginTop:2}}>{datedCount} dated payments · Total {fmtN(grandTotal)}</div>
+        </div>
+        <div style={{display:'flex',gap:4}}>
+          {[['auto','Auto'],['day','Daily'],['month','Monthly']].map(([id,lbl])=>(
+            <button key={id} onClick={()=>setGroupBy(id)}
+              style={{padding:'5px 12px',borderRadius:8,border:`1.5px solid ${groupBy===id?B.brand:B.line}`,background:groupBy===id?B.brand:B.white,color:groupBy===id?'#fff':B.muted,fontSize:11,fontWeight:600,cursor:'pointer'}}>
+              {lbl}
+            </button>
           ))}
-          {months.map((m,i)=>{
-            const x=bx(i);const h=bh(m.total);const y=by(m.total);const isH=hov?.key===m.key;
+        </div>
+      </div>
+
+      <div style={{overflowX:'auto',WebkitOverflowScrolling:'touch'}}>
+        <svg width={svgW} height={svgH} style={{display:'block',overflow:'visible'}}>
+          <defs>
+            <linearGradient id="payGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor={B.brand} stopOpacity={0.14}/>
+              <stop offset="100%" stopColor={B.brand} stopOpacity={0.01}/>
+            </linearGradient>
+          </defs>
+          {/* Y-axis grid + labels */}
+          {[0,0.25,0.5,0.75,1].map(f=>{
+            const y=PT+CH*(1-f);const v=maxVal*f;
+            return <g key={f}>
+              <line x1={PL} y1={y} x2={PL+CW} y2={y} stroke={f===0?'#CBD5E1':'#EFF2F7'} strokeWidth={1}/>
+              <text x={PL-6} y={y+4} textAnchor='end' fontSize={9} fill={B.muted}>
+                {v===0?'0':v>=100000?(v/100000).toFixed(1)+'L':v>=1000?Math.round(v/1000)+'K':v}
+              </text>
+            </g>;
+          })}
+          {/* Area fill */}
+          {pts.length>1&&<path d={areaPath} fill='url(#payGrad)'/>}
+          {/* Line */}
+          {pts.length>1&&<polyline points={linePts} fill='none' stroke={B.brand} strokeWidth={2.5} strokeLinejoin='round' strokeLinecap='round'/>}
+          {/* X labels */}
+          {pts.map((p,i)=>{
+            if(pts.length>1&&i%step!==0&&i!==pts.length-1)return null;
+            const x=px(i);const isH=hov?.key===p.key;
             return(
-              <g key={m.key} style={{cursor:'pointer'}}
-                onMouseEnter={e=>setHov({key:m.key,x:e.clientX,y:e.clientY})}
-                onMouseMove={e=>setHov(s=>s?{...s,x:e.clientX,y:e.clientY}:null)}
-                onMouseLeave={()=>setHov(null)}>
-                <rect x={x} y={TP} width={BW} height={CH} fill='transparent'/>
-                <rect x={x} y={y} width={BW} height={h} fill={isH?B.brand:B.brandLight} rx={6}/>
-                <text x={x+BW/2} y={y-5} textAnchor='middle' fontSize={9} fill={isH?B.brand:B.muted} fontWeight={isH?700:500}>
-                  {m.total>=100000?(m.total/100000).toFixed(1)+'L':(m.total/1000).toFixed(0)+'K'}
-                </text>
-                <text x={x+BW/2} y={TP+CH+20} textAnchor='middle' fontSize={11} fill={isH?B.brand:B.muted} fontWeight={isH?700:500}>
-                  {m.lbl}
-                </text>
+              <text key={p.key} x={x} y={PT+CH+16} textAnchor='middle' fontSize={10}
+                fill={isH?B.brand:B.muted} fontWeight={isH?700:400}
+                transform={pts.length>10?`rotate(-35,${x},${PT+CH+16})`:undefined}>
+                {p.lbl}
+              </text>
+            );
+          })}
+          {/* Hit zones + dots */}
+          {pts.map((p,i)=>{
+            const x=px(i);const y=py(p.total);const isH=hov?.key===p.key;
+            return(
+              <g key={p.key}>
+                <rect x={x-16} y={PT} width={32} height={CH+16} fill='transparent' style={{cursor:'pointer'}}
+                  onMouseEnter={e=>setHov({key:p.key,x:e.clientX,y:e.clientY})}
+                  onMouseMove={e=>setHov(s=>s?{...s,x:e.clientX,y:e.clientY}:null)}
+                  onMouseLeave={()=>setHov(null)}/>
+                {isH&&<line x1={x} y1={PT} x2={x} y2={PT+CH} stroke={B.brand} strokeWidth={1} strokeDasharray='4,3'/>}
+                <circle cx={x} cy={y} r={isH?6:3.5} fill={isH?B.brand:'#fff'} stroke={B.brand} strokeWidth={2} style={{pointerEvents:'none'}}/>
               </g>
             );
           })}
         </svg>
       </div>
+
       {hov&&hM&&(
-        <div style={{position:'fixed',left:hov.x+16,top:hov.y,background:B.navy,color:'#fff',borderRadius:12,padding:'12px 16px',fontSize:12,zIndex:9999,boxShadow:'0 6px 24px rgba(0,0,0,.25)',minWidth:210,maxWidth:270,pointerEvents:'none',transform:'translateY(-50%)'}}>
+        <div style={{position:'fixed',left:hov.x+16,top:hov.y,background:B.navy,color:'#fff',borderRadius:12,padding:'12px 16px',fontSize:12,zIndex:9999,boxShadow:'0 6px 24px rgba(0,0,0,.25)',minWidth:220,maxWidth:280,pointerEvents:'none',transform:'translateY(-50%)'}}>
           <div style={{fontWeight:700,fontSize:13,marginBottom:4}}>{hM.lbl}</div>
           <div style={{fontWeight:800,fontSize:19,color:'#93C5FD',marginBottom:2}}>{fmtN(hM.total)}</div>
           <div style={{color:'rgba(255,255,255,.5)',fontSize:11,marginBottom:8}}>{hM.rows.length} payment{hM.rows.length!==1?'s':''}</div>
           <div style={{borderTop:'1px solid rgba(255,255,255,.1)',paddingTop:8}}>
-            {hM.rows.slice(0,5).map((r,i)=>(
+            {hM.rows.slice(0,6).map((r,i)=>(
               <div key={i} style={{display:'flex',justifyContent:'space-between',gap:12,marginBottom:3}}>
-                <div style={{color:'rgba(255,255,255,.7)',fontSize:11,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:130}}>{r.rm||'—'}</div>
+                <div style={{color:'rgba(255,255,255,.7)',fontSize:11,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:140}}>{r.rm||'—'}</div>
                 <div style={{fontSize:11,fontWeight:700,flexShrink:0}}>{fmtN(r.amount)}</div>
               </div>
             ))}
-            {hM.rows.length>5&&<div style={{color:'rgba(255,255,255,.4)',fontSize:10,marginTop:3}}>+{hM.rows.length-5} more</div>}
+            {hM.rows.length>6&&<div style={{color:'rgba(255,255,255,.4)',fontSize:10,marginTop:3}}>+{hM.rows.length-6} more</div>}
           </div>
         </div>
       )}
@@ -2917,7 +2996,7 @@ function ZoneOverviewPanel(){
     <StatCard title="Monthly Leads" value={`${ZONE.leads.achieved} / ${ZONE.leads.target}`} icon="📋"/>
   </div>;
 
-  const tabs=[['tl','TL / ATL'],['city','City-wise'],['rm','Individual (RM)'],['top','Top / Bottom 5']];
+  const tabs=[['tl','TL / ATL'],['city','City-wise'],['rm','Individual (RM)'],['top','Top / Bottom 5'],['chart','Payments Chart']];
 
   return(
     <div style={{background:B.bg,minHeight:'100vh',padding:isMobile?'0 0 80px 0':'20px 24px'}}>
@@ -2991,7 +3070,6 @@ function ZoneOverviewPanel(){
         </div>}
 
         <KpiRow/>
-        <MonthlyPaymentsChart rows={_cache.payment_rows||[]} title="Month-on-Month Payments"/>
 
         {/* Tab nav */}
         <div style={{background:B.white,border:`1px solid ${B.line}`,borderRadius:10,padding:6,display:'inline-flex',gap:4,marginBottom:20}}>
@@ -3217,6 +3295,7 @@ function ZoneOverviewPanel(){
             </button>
           </div>
         </div>}
+        {tab==='chart'&&<MonthlyPaymentsChart rows={_cache.payment_rows||[]}/>}
       </>}
     </div>
   );
