@@ -338,7 +338,7 @@ async function initFirestore(){
       if(d.id==='route_assignments')_cache.route_assignments=d.data()||{};
       if(d.id==='tl_achieved')_cache.tl_achieved=d.data()||{};
       if(d.id==='sync_settings')_cache.sync_settings=d.data()||{};
-      if(d.id==='payment_rows')_cache.payment_rows=d.data()?.rows||[];
+      if(d.id==='payment_rows')_cache.payment_rows=(d.data()?.rows||[]).map(r=>r.is?{...r,is:matchISName(r.is)}:r);
       if(d.id==='pending_payments')_pendingPayments=d.data()?.rows||[];
       if(d.id==='monthly_reset')_cache.monthly_reset=d.data()||{};
       if(d.id==='route_plan_data'){const rpd=d.data()||{};_cache.route_plan_data={live_status:[],needs_action:[],new_onboarded:[],disabled:[],lastFetched:null,...rpd};}
@@ -748,6 +748,32 @@ let _pendingPayments=[]; // app-entered payments not yet confirmed in sheet
 function formatSheetDate(iso){const[y,m,d]=iso.split('-');return`${d}/${m}/${y}`;}
 function toTitleCase(s){return(s||'').replace(/\b\w/g,c=>c.toUpperCase());}
 
+// Canonical IS people — name lowercase to match payment_rows.is
+const IS_NAMES=[
+  {name:'aakansha kumari lohani', email:'aakansha@even.in'},
+  {name:'aman',                   email:'aman.pandey@even.in'},
+  {name:'aman bhaesare',          email:'aman.bhaisare@even.in'},
+  {name:'aniket sahu',            email:'aniket.vijay@even.in'},
+  {name:'archana raju mane',      email:'archana.mane@even.in'},
+  {name:'arya nirawane',          email:'arya@even.in'},
+  {name:'jayraj',                 email:'jbansode@even.in'},
+  {name:'karan',                  email:'karan.pawar@even.in'},
+  {name:'mamta l',                email:'mamta.l@even.in'},
+  {name:'nikhil',                 email:'nikhil.gaikwad@even.in'},
+  {name:'payal r',                email:'payal.r@even.in'},
+  {name:'purva ramteke',          email:'purva@even.in'},
+  {name:'ranajit biswas',         email:'ranajit@even.in'},
+  {name:'riya mukharji',          email:'riya.mukharji@even.in'},
+  {name:'safia',                  email:'safia.khan@even.in'},
+  {name:'sagar jalkote',          email:'sagar.jalkote@even.in'},
+  {name:'sakshika suman',         email:'sakshika.suman@even.in'},
+  {name:'sanket',                 email:'sanket.londhe@even.in'},
+  {name:'sanmoy banerjee',        email:'sanmoy.banerjee@even.in'},
+  {name:'tejasvini',              email:'tejasvini@even.in'},
+  {name:'udit pandey',            email:'udit@even.in'},
+  {name:'vrushabh',               email:'vrushab.shetake@even.in'},
+];
+
 function normalizeIS(s){
   return(s||'').trim().toLowerCase().replace(/[._\-]+/g,' ').replace(/\s+/g,' ').trim();
 }
@@ -862,32 +888,6 @@ const ZONE={
 };
 
 const ALL_RMS=[
-];
-
-// Canonical IS people — name lowercase to match payment_rows.is
-const IS_NAMES=[
-  {name:'aakansha kumari lohani', email:'aakansha@even.in'},
-  {name:'aman',                   email:'aman.pandey@even.in'},
-  {name:'aman bhaesare',          email:'aman.bhaisare@even.in'},
-  {name:'aniket sahu',            email:'aniket.vijay@even.in'},
-  {name:'archana raju mane',      email:'archana.mane@even.in'},
-  {name:'arya nirawane',          email:'arya@even.in'},
-  {name:'jayraj',                 email:'jbansode@even.in'},
-  {name:'karan',                  email:'karan.pawar@even.in'},
-  {name:'mamta l',                email:'mamta.l@even.in'},
-  {name:'nikhil',                 email:'nikhil.gaikwad@even.in'},
-  {name:'payal r',                email:'payal.r@even.in'},
-  {name:'purva ramteke',          email:'purva@even.in'},
-  {name:'ranajit biswas',         email:'ranajit@even.in'},
-  {name:'riya mukharji',          email:'riya.mukharji@even.in'},
-  {name:'safia',                  email:'safia.khan@even.in'},
-  {name:'sagar jalkote',          email:'sagar.jalkote@even.in'},
-  {name:'sakshika suman',         email:'sakshika.suman@even.in'},
-  {name:'sanket',                 email:'sanket.londhe@even.in'},
-  {name:'sanmoy banerjee',        email:'sanmoy.banerjee@even.in'},
-  {name:'tejasvini',              email:'tejasvini@even.in'},
-  {name:'udit pandey',            email:'udit@even.in'},
-  {name:'vrushabh',               email:'vrushab.shetake@even.in'},
 ];
 
 // ── APPLY STORE → GLOBALS ─────────────────────────────────────────────────
