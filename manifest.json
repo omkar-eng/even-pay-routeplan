@@ -1,0 +1,28 @@
+{
+  "name": "Even — Sales Operations",
+  "short_name": "Even Pay",
+  "description": "Sales operations and route planning platform for Even Healthcare",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#F0F4FF",
+  "theme_color": "#2350FF",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ],
+  "screenshots": [],
+  "categories": ["business", "productivity"],
+  "lang": "en-IN"
+}
