@@ -697,6 +697,28 @@ async function syncFromGoogleSheet({silent=false}={}){
         updatedAt:now};
     });
 
+    // Preserve manually-added RMs (exist in Firestore but not in sheet)
+    liveSnap.docs.forEach(d=>{
+      const dt=d.data();
+      if(!dt.rm||!dt.tl)return;
+      const k=safeKey(`${dt.tl}|${dt.rm}`);
+      if(s[k])return; // sheet takes precedence
+      s[k]=dt;
+      ALL_RMS.push({
+        rm:dt.rm,tl:dt.tl,city:dt.city||'',
+        target:dt.target||0,achieved:dt.netAchieved||0,refund:0,leads:0,
+        clinics:dt.clinics||savedClinics[dt.rm.toLowerCase().trim()]||[],
+        monthlyTgt:dt.monthlyLeads||0,monthlyAchv:dt.monthlyAchieved||0,
+        dailyTgt:dt.dailyLeads||0,dailyAchv:dt.dailyAchieved||0,
+        renewalTgt:dt.renewalTarget||0,renewalAchv:dt.renewalAchieved||0,
+      });
+      if(!tlByName[dt.tl.toLowerCase()]){
+        const nt={name:dt.tl,city:dt.city||'',rms:0,filledRMs:0,target:0,achieved:0,leads:0,renewals:0,
+          monthlyTgt:0,monthlyAchv:0,dailyTgt:0,dailyAchv:0,renewalTgt:0,renewalAchv:0};
+        ZONE.tls.push(nt);tlByName[dt.tl.toLowerCase()]=nt;
+      }
+    });
+
     // Recompute aggregates — use payByTL for TL achieved (avoids RM name mismatch)
     ZONE.tls.forEach(tl=>{
       const n=tl.name.toLowerCase();
