@@ -4253,6 +4253,7 @@ function AdminPanel(){
   const[autoSyncEnabled,setAutoSyncEnabled]=useState(!!_cache.sync_settings?.enabled);
   const[syncIntervalMin,setSyncIntervalMin]=useState(_cache.sync_settings?.intervalMin||30);
   const[targetsTab,setTargetsTab]=useState(_cache.sync_settings?.targetsTab||'');
+  const[archiveMsg,setArchiveMsg]=useState('');
   const[autoSyncMsg,setAutoSyncMsg]=useState('');
   const[payDiag,setPayDiag]=useState(null);
   const[resetMsg,setResetMsg]=useState('');
@@ -4425,6 +4426,19 @@ function AdminPanel(){
     }catch(e){setRouteSyncMsg('Sync failed — verify the URL and that the sheet is published as CSV');}
     setRouteSyncing(false);
     setTimeout(()=>setRouteSyncMsg(''),6000);
+  };
+
+  const handleArchiveMonth=async()=>{
+    const now=new Date();
+    const monthLabel=now.toLocaleString('en-IN',{month:'short',year:'numeric'}); // e.g. "Jun 2026"
+    const tabName=`${monthLabel} Achieved`;
+    setArchiveMsg('Archiving…');
+    const rows=ALL_RMS.filter(r=>!r.inactive).map(r=>({rm:r.rm,tl:r.tl,city:r.city||'',target:r.target||0,achieved:r.achieved||0}));
+    try{
+      const res=await fetch(SHEET_SCRIPT_URL,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'writeMonthSummary',tab:tabName,rows})}).then(r=>r.json());
+      setArchiveMsg(res.status==='ok'?`✅ Archived to "${tabName}" in your sheet`:'❌ '+(res.message||'Error'));
+    }catch(e){setArchiveMsg('❌ Archive failed — check script deployment');}
+    setTimeout(()=>setArchiveMsg(''),6000);
   };
 
   const handleSaveAutoSync=async()=>{
@@ -5060,12 +5074,23 @@ function AdminPanel(){
                 placeholder="e.g. RM Targets June"
                 style={{padding:'9px 12px',border:`1.5px solid ${B.line}`,borderRadius:8,fontSize:13,width:'100%',maxWidth:320,outline:'none',boxSizing:'border-box'}}/>
             </div>
-            <div style={{display:'flex',gap:10,alignItems:'center'}}>
+            <div style={{display:'flex',gap:10,alignItems:'center',marginBottom:20}}>
               <button onClick={handleSaveAutoSync}
                 style={{padding:'9px 20px',background:B.brand,color:'#fff',border:'none',borderRadius:10,fontSize:13,fontWeight:700,cursor:'pointer'}}>
                 Save Settings
               </button>
               {autoSyncMsg&&<span style={{fontSize:13,color:autoSyncMsg.includes('✅')?B.green:B.red,fontWeight:600}}>{autoSyncMsg}</span>}
+            </div>
+            <div style={{borderTop:`1px solid ${B.line}`,paddingTop:16}}>
+              <div style={{fontWeight:700,fontSize:14,color:B.navy,marginBottom:4}}>Month-End Archive</div>
+              <div style={{fontSize:12,color:B.muted,marginBottom:12}}>Creates a new tab in your Google Sheet (e.g. "Jun 2026 Achieved") with each RM's target and achieved amount for the current month. Run this before the monthly reset.</div>
+              <div style={{display:'flex',gap:10,alignItems:'center'}}>
+                <button onClick={handleArchiveMonth}
+                  style={{padding:'9px 20px',background:B.amber,color:'#fff',border:'none',borderRadius:10,fontSize:13,fontWeight:700,cursor:'pointer'}}>
+                  Archive This Month to Sheet
+                </button>
+                {archiveMsg&&<span style={{fontSize:13,color:archiveMsg.includes('✅')?B.green:B.red,fontWeight:600}}>{archiveMsg}</span>}
+              </div>
             </div>
           </Card>
         </div>}
