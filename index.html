@@ -893,6 +893,33 @@ const ALL_RMS=[
 // ── APPLY STORE → GLOBALS ─────────────────────────────────────────────────
 // Returns the effective target for an RM given the active date range.
 // Only gates to 0 when viewing "This Month" and the target was set for a different month.
+function fuzzyRMScore(a,b){
+  const n=s=>s.toLowerCase().trim().replace(/\s+/g,' ');
+  a=n(a);b=n(b);
+  if(a===b)return 1;
+  const aw=a.split(' '),bw=b.split(' ');
+  const aSet=new Set(aw),bSet=new Set(bw);
+  const common=[...aSet].filter(w=>w.length>2&&bSet.has(w)).length;
+  const sub=aw.some(w=>w.length>3&&bw.some(v=>v.includes(w)||w.includes(v)));
+  const first=aw[0]===bw[0];
+  if(first&&common>=1)return 0.9;
+  if(common>=2)return 0.85;
+  if(first&&sub)return 0.8;
+  if(common>=1)return 0.6;
+  if(first||sub)return 0.5;
+  return 0;
+}
+function bestFuzzyRM(rmName,tlName){
+  let best=null,bs=0.45;
+  for(const r of ALL_RMS){
+    if(r.inactive)continue;
+    const s=fuzzyRMScore(rmName,r.rm);
+    const tlBonus=r.tl.toLowerCase()===tlName.toLowerCase()?0.1:0;
+    const total=Math.min(1,s+tlBonus);
+    if(total>bs){bs=total;best={rm:r.rm,tl:r.tl,city:r.city,score:total};}
+  }
+  return best;
+}
 function effTgtForRange(r,dateRange){
   if(dateRange==='This Month'){
     const curMK=new Date().toISOString().slice(0,7);
@@ -4234,16 +4261,27 @@ function AdminPanel(){
       const key=safeKey(`${tl}|${rm}`);
       const inSystem=!!ALL_RMS.find(r=>r.rm.toLowerCase()===rm.toLowerCase()&&r.tl.toLowerCase()===tl.toLowerCase());
       const hasEntry=!!(_cache.targets[key]);
-      rows.push({rm,tl,city,target,key,inSystem,hasEntry});
+      const fuzzyMatch=inSystem?null:bestFuzzyRM(rm,tl);
+      rows.push({rm,tl,city,target,key,inSystem,hasEntry,fuzzyMatch});
     }
     setBulkRows(rows);
   };
 
+  const acceptFuzzy=i=>{
+    const row=bulkRows[i];
+    if(!row.fuzzyMatch)return;
+    const{rm,tl,city}=row.fuzzyMatch;
+    const key=safeKey(`${tl}|${rm}`);
+    const hasEntry=!!(_cache.targets[key]);
+    setBulkRows(bulkRows.map((r,idx)=>idx===i?{...r,rm,tl,city:city||r.city,key,inSystem:true,hasEntry,fuzzyMatch:null,fuzzyAccepted:true}:r));
+  };
+
   const saveBulk=async()=>{
-    if(!bulkRows?.length)return;
+    const toSave=bulkRows.filter(r=>r.inSystem);
+    if(!toSave.length)return;
     setBulkSaving('Saving…');
     const curMK=new Date().toISOString().slice(0,7);
-    await Promise.all(bulkRows.map(row=>{
+    await Promise.all(toSave.map(row=>{
       const existing=_cache.targets[row.key]||{};
       const entry={...existing,tl:row.tl,rm:row.rm,city:row.city||existing.city||'',
         target:row.target,targetMonth:curMK,
@@ -4253,7 +4291,8 @@ function AdminPanel(){
     applyStoreToRMs();
     window.dispatchEvent(new Event('rmDataUpdated'));
     setTargets(loadStore());
-    setBulkSaving(`✅ ${bulkRows.length} targets saved!`);
+    const skipped=bulkRows.length-toSave.length;
+    setBulkSaving(`✅ ${toSave.length} saved${skipped?`, ${skipped} skipped`:''}!`);
     setBulkRows(null);setBulkText('');
     setTimeout(()=>{setBulkSaving('');setBulkOpen(false);},3000);
   };
@@ -4601,10 +4640,16 @@ function AdminPanel(){
                           <td style={{padding:'8px 12px',color:B.muted}}>{r.tl}</td>
                           <td style={{padding:'8px 12px',color:B.muted}}>{r.city}</td>
                           <td style={{padding:'8px 12px',textAlign:'right',fontWeight:700}}>{Number(r.target).toLocaleString('en-IN')}</td>
-                          <td style={{padding:'8px 12px'}}>
+                          <td style={{padding:'8px 12px',minWidth:180}}>
                             {r.inSystem
-                              ?<span style={{background:B.greenBg,color:B.green,borderRadius:20,padding:'3px 10px',fontSize:11,fontWeight:700}}>{r.hasEntry?'Update':'New'}</span>
-                              :<span style={{background:B.amberBg,color:B.amber,borderRadius:20,padding:'3px 10px',fontSize:11,fontWeight:700}}>Not in system</span>}
+                              ?<span style={{background:B.greenBg,color:B.green,borderRadius:20,padding:'3px 10px',fontSize:11,fontWeight:700}}>{r.hasEntry?'Update':'New'}{r.fuzzyAccepted?' (matched)':''}</span>
+                              :r.fuzzyMatch
+                                ?<div>
+                                   <div style={{marginBottom:4}}><span style={{background:B.amberBg,color:B.amber,borderRadius:20,padding:'3px 8px',fontSize:11,fontWeight:700}}>No exact match</span></div>
+                                   <div style={{fontSize:11,color:B.muted,marginBottom:5}}>Did you mean <strong style={{color:B.ink}}>{r.fuzzyMatch.rm}</strong> ({r.fuzzyMatch.tl})?</div>
+                                   <button onClick={()=>acceptFuzzy(i)} style={{padding:'4px 12px',background:B.brand,color:'#fff',border:'none',borderRadius:8,fontSize:11,fontWeight:700,cursor:'pointer'}}>Use this</button>
+                                 </div>
+                                :<span style={{background:B.redBg,color:B.red,borderRadius:20,padding:'3px 10px',fontSize:11,fontWeight:700}}>Not found — skip</span>}
                           </td>
                         </tr>
                       ))}
@@ -4613,9 +4658,12 @@ function AdminPanel(){
                 </div>
                 <div style={{display:'flex',gap:10,marginTop:12,alignItems:'center',flexWrap:'wrap'}}>
                   <button onClick={saveBulk} style={{padding:'10px 24px',background:B.green,color:'#fff',border:'none',borderRadius:12,fontSize:14,fontWeight:700,cursor:'pointer'}}>
-                    Save {bulkRows.length} targets to Firebase
+                    Save {bulkRows.filter(r=>r.inSystem).length} targets to Firebase
                   </button>
-                  <span style={{fontSize:12,color:B.muted}}>Will be set for {new Date().toLocaleString('en-IN',{month:'long',year:'numeric'})}</span>
+                  <span style={{fontSize:12,color:B.muted}}>
+                    {new Date().toLocaleString('en-IN',{month:'long',year:'numeric'})}
+                    {bulkRows.some(r=>!r.inSystem)&&` · ${bulkRows.filter(r=>!r.inSystem).length} unmatched will be skipped`}
+                  </span>
                 </div>
               </>
             )}
