@@ -629,8 +629,9 @@ async function syncFromGoogleSheet({silent=false}={}){
         precomputedTargets[c.norm]=monthlyTgtRows[c.entryIdx].tgt;
       }
     }
+    const hasTabData=_tTab&&monthlyTgtRows.length>0;
     const getMonthlyTgt=(dispRM,shRM)=>{
-      if(_tTab)return precomputedTargets[normN(shRM)]||precomputedTargets[normN(dispRM)]||0;
+      if(hasTabData)return precomputedTargets[normN(shRM)]||precomputedTargets[normN(dispRM)]||0;
       const exact=monthlyTgtMap[normN(dispRM)]||monthlyTgtMap[normN(shRM)];
       if(exact)return exact;
       let best=0,bestTgt=0;
@@ -742,9 +743,9 @@ async function syncFromGoogleSheet({silent=false}={}){
         :sheetRM;
       const key=safeKey(`${sheetTL}|${displayRM}`);
       const ex=existingLeads[key]||{};
-      // When monthly tab configured: RMs not in it are auto-deactivated (preserve last target frozen)
-      const monthlyTgtVal=_tTab?(getMonthlyTgt(displayRM,sheetRM)||0):((getMonthlyTgt(displayRM,sheetRM)||parseFloat(r['Target (INR)'])||0)||(ex.target||0));
-      const autoDeact=_tTab&&monthlyTgtVal===0&&!ex.inactive&&(ex.target||0)>0;
+      // When monthly tab is configured AND has data: RMs not in it are auto-deactivated
+      const monthlyTgtVal=hasTabData?(getMonthlyTgt(displayRM,sheetRM)||0):((getMonthlyTgt(displayRM,sheetRM)||parseFloat(r['Target (INR)'])||0)||(ex.target||0));
+      const autoDeact=hasTabData&&monthlyTgtVal===0&&!ex.inactive;
       if(autoDeact)autoDeactivated.push(displayRM);
       const rmTarget=autoDeact?(ex.target||0):monthlyTgtVal;
       const rmInactive=ex.inactive||autoDeact;
