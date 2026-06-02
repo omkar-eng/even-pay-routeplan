@@ -581,18 +581,38 @@ async function syncFromGoogleSheet({silent=false}={}){
     const rows=jTargets.data.targets||[];
     const paymentRows=jPayments.data.payments||[];
     // Build monthly target map from the dedicated targets tab if configured
-    const monthlyTgtMap={};
     const normN=s=>s.toString().toLowerCase().trim().replace(/\s+/g,' ');
+    const monthlyTgtMap={};   // normN(name) → target amount
+    const monthlyTgtRows=[];  // raw rows for fuzzy fallback
     if(jMonthlyTgts?.status==='ok'){
       const tRows=jMonthlyTgts.data?.rows||jMonthlyTgts.data?.targets||(Array.isArray(jMonthlyTgts.data)?jMonthlyTgts.data:[]);
       tRows.forEach(row=>{
-        const name=(row['Actual RM Name']||row['RM Name']||'').toString().trim();
+        const actualName=(row['Actual RM Name']||'').toString().trim();
+        const rmName=(row['RM Name']||'').toString().trim();
         const rawTgt=row['Target (₹)']??row['Target (INR)']??row['Target']??'';
         const tgt=typeof rawTgt==='number'?rawTgt:parseFloat(rawTgt.toString().replace(/[₹,\s]/g,''))||0;
-        if(name&&tgt>0)monthlyTgtMap[normN(name)]=tgt;
+        if(tgt>0){
+          if(actualName)monthlyTgtMap[normN(actualName)]=tgt;
+          if(rmName&&rmName!==actualName)monthlyTgtMap[normN(rmName)]=tgt;
+          monthlyTgtRows.push({actualName,rmName,tgt});
+        }
       });
     }
-    if(el&&_tTab){el.textContent=`Monthly targets tab: ${Object.keys(monthlyTgtMap).length} RMs loaded…`;el.style.color='#64748B';}
+    // Fuzzy fallback: find best matching entry in monthlyTgtRows for a given RM name
+    const getMonthlyTgt=(dispRM,shRM)=>{
+      const exact=monthlyTgtMap[normN(dispRM)]||monthlyTgtMap[normN(shRM)];
+      if(exact)return exact;
+      let best=0,bestTgt=0;
+      for(const entry of monthlyTgtRows){
+        for(const cand of[entry.actualName,entry.rmName]){
+          if(!cand)continue;
+          const sc=fuzzyRMScore(normN(dispRM),normN(cand));
+          if(sc>0.65&&sc>best){best=sc;bestTgt=entry.tgt;}
+        }
+      }
+      return bestTgt;
+    };
+    if(el&&_tTab){el.textContent=`Monthly targets tab: ${monthlyTgtRows.length} RMs loaded…`;el.style.color='#64748B';}
 
     // Build payment totals by RM and by TL (case-insensitive)
     const payByRM={};const payByTL={};
@@ -691,7 +711,7 @@ async function syncFromGoogleSheet({silent=false}={}){
       const ex=existingLeads[key]||{};
       const rmObj={
         rm:displayRM,tl:sheetTL,city:sheetCity,
-        target:(monthlyTgtMap[normN(displayRM)]||monthlyTgtMap[normN(sheetRM)]||parseFloat(r['Target (INR)'])||0)||(ex.target||0),
+        target:(getMonthlyTgt(displayRM,sheetRM)||parseFloat(r['Target (INR)'])||0)||(ex.target||0),
         achieved:paid,
         refund:0,
         inactive:ex.inactive||false,
@@ -707,7 +727,7 @@ async function syncFromGoogleSheet({silent=false}={}){
       s[key]={tl:sheetTL,rm:displayRM,city:sheetCity,
         target:rmObj.target,netAchieved:rmObj.achieved,
         inactive:ex.inactive||false,
-        targetMonth:((monthlyTgtMap[normN(displayRM)]||monthlyTgtMap[normN(sheetRM)]||parseFloat(r['Target (INR)'])||0)>0)?curMK:(ex.targetMonth||''),
+        targetMonth:((getMonthlyTgt(displayRM,sheetRM)||parseFloat(r['Target (INR)'])||0)>0)?curMK:(ex.targetMonth||''),
         monthlyLeads:rmObj.monthlyTgt||ex.monthlyLeads||0,
         monthlyAchieved:rmObj.monthlyAchv||ex.monthlyAchieved||0,
         dailyLeads:rmObj.dailyTgt||ex.dailyLeads||0,
