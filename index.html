@@ -659,7 +659,7 @@ async function syncFromGoogleSheet({silent=false}={}){
 
     // Rebuild ALL_RMS fresh from sheet — sheet names are the only source of truth
     ALL_RMS.splice(0,ALL_RMS.length);
-    const s={};const now=new Date().toISOString();
+    const s={};const now=new Date().toISOString();const curMK=new Date().toISOString().slice(0,7);
     rows.forEach(r=>{
       const sheetRM=(r.RM||'').trim();
       const sheetTL=(r['TL/ATL']||'').trim();
@@ -676,7 +676,7 @@ async function syncFromGoogleSheet({silent=false}={}){
       const ex=existingLeads[key]||{};
       const rmObj={
         rm:displayRM,tl:sheetTL,city:sheetCity,
-        target:parseFloat(r['Target (INR)'])||ex.target||0,
+        target:(parseFloat(r['Target (INR)'])||0)||(ex.target||0),
         achieved:paid,
         refund:0,
         inactive:ex.inactive||false,
@@ -692,7 +692,7 @@ async function syncFromGoogleSheet({silent=false}={}){
       s[key]={tl:sheetTL,rm:displayRM,city:sheetCity,
         target:rmObj.target,netAchieved:rmObj.achieved,
         inactive:ex.inactive||false,
-        targetMonth:ex.targetMonth||'',
+        targetMonth:(parseFloat(r['Target (INR)'])||0)>0?curMK:(ex.targetMonth||''),
         monthlyLeads:rmObj.monthlyTgt||ex.monthlyLeads||0,
         monthlyAchieved:rmObj.monthlyAchv||ex.monthlyAchieved||0,
         dailyLeads:rmObj.dailyTgt||ex.dailyLeads||0,
