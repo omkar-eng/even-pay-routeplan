@@ -3080,11 +3080,18 @@ function AddPaymentModal({onClose}){
 // ── MONTHLY PAYMENTS CHART ─────────────────────────────────────────────────
 function MonthlyPaymentsChart({rows}){
   const[groupBy,setGroupBy]=useState('auto');
+  const[showAll,setShowAll]=useState(false);
   const[hov,setHov]=useState(null);
+
+  const activeRows=showAll?(rows||[]):(()=>{
+    const{from,to}=getDateRangeFromLabel('This Month');
+    const toEnd=new Date(to.getFullYear(),to.getMonth(),to.getDate(),23,59,59,999);
+    return(rows||[]).filter(r=>{const d=parsePayDate(r.date);return d&&d>=from&&d<=toEnd;});
+  })();
 
   const buildPts=(gBy)=>{
     const map={};
-    (rows||[]).forEach(r=>{
+    activeRows.forEach(r=>{
       const d=parsePayDate(r.date);if(!d)return;
       const yr=d.getFullYear();const mo=String(d.getMonth()+1).padStart(2,'0');const dy=String(d.getDate()).padStart(2,'0');
       let key,lbl;
@@ -3104,13 +3111,13 @@ function MonthlyPaymentsChart({rows}){
   let pts=buildPts(groupBy==='auto'?'day':groupBy);
   if(groupBy==='auto'&&pts.length>45)pts=buildPts('month');
 
-  const datedCount=(rows||[]).filter(r=>parsePayDate(r.date)).length;
-  const grandTotal=(rows||[]).reduce((s,r)=>s+r.amount,0);
+  const datedCount=activeRows.filter(r=>parsePayDate(r.date)).length;
+  const grandTotal=activeRows.reduce((s,r)=>s+r.amount,0);
 
   if(pts.length===0)return(
     <div style={{background:B.white,borderRadius:16,border:`1px solid ${B.line}`,padding:'40px 24px',textAlign:'center',color:B.muted}}>
-      <div style={{fontSize:14,fontWeight:600,marginBottom:4}}>No chart data available</div>
-      <div style={{fontSize:12}}>{(rows||[]).length} payment rows · {datedCount} with parsed dates. Run a sync to load payment data.</div>
+      <div style={{fontSize:14,fontWeight:600,marginBottom:4}}>No payments this month yet</div>
+      <div style={{fontSize:12}}>{activeRows.length} payment rows · Run a sync to load data.{!showAll&&<span> <button onClick={()=>setShowAll(true)} style={{background:'none',border:'none',color:B.brand,cursor:'pointer',fontSize:12,fontWeight:600,textDecoration:'underline'}}>Show all time</button></span>}</div>
     </div>
   );
 
@@ -3132,10 +3139,14 @@ function MonthlyPaymentsChart({rows}){
     <div style={{background:B.white,borderRadius:16,border:`1px solid ${B.line}`,padding:'20px 20px 12px',position:'relative'}}>
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16,flexWrap:'wrap',gap:8}}>
         <div>
-          <div style={{fontSize:14,fontWeight:700,color:B.navy}}>Payments over time</div>
-          <div style={{fontSize:11,color:B.muted,marginTop:2}}>{datedCount} dated payments · Total {fmtN(grandTotal)}</div>
+          <div style={{fontSize:14,fontWeight:700,color:B.navy}}>Payments — {showAll?'All Time':'This Month'}</div>
+          <div style={{fontSize:11,color:B.muted,marginTop:2}}>{datedCount} payments · Total {fmtN(grandTotal)}</div>
         </div>
-        <div style={{display:'flex',gap:4}}>
+        <div style={{display:'flex',gap:4,flexWrap:'wrap'}}>
+          <button onClick={()=>setShowAll(s=>!s)}
+            style={{padding:'5px 12px',borderRadius:8,border:`1.5px solid ${B.brand}`,background:showAll?B.white:B.brand,color:showAll?B.brand:'#fff',fontSize:11,fontWeight:600,cursor:'pointer'}}>
+            {showAll?'This Month':'All Time'}
+          </button>
           {[['auto','Auto'],['day','Daily'],['month','Monthly']].map(([id,lbl])=>(
             <button key={id} onClick={()=>setGroupBy(id)}
               style={{padding:'5px 12px',borderRadius:8,border:`1.5px solid ${groupBy===id?B.brand:B.line}`,background:groupBy===id?B.brand:B.white,color:groupBy===id?'#fff':B.muted,fontSize:11,fontWeight:600,cursor:'pointer'}}>
