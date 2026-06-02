@@ -685,6 +685,7 @@ async function syncFromGoogleSheet({silent=false}={}){
           renewalAchieved:dt.renewalAchieved||0,
           inactive:dt.inactive||false,
           targetMonth:dt.targetMonth||'',
+          target:dt.target||0,
         };
       }
     });
@@ -695,6 +696,7 @@ async function syncFromGoogleSheet({silent=false}={}){
     // Rebuild ALL_RMS fresh from sheet — sheet names are the only source of truth
     ALL_RMS.splice(0,ALL_RMS.length);
     const s={};const now=new Date().toISOString();const curMK=new Date().toISOString().slice(0,7);
+    const autoDeactivated=[];
     rows.forEach(r=>{
       const sheetRM=(r.RM||'').trim();
       const sheetTL=(r['TL/ATL']||'').trim();
@@ -709,12 +711,18 @@ async function syncFromGoogleSheet({silent=false}={}){
         :sheetRM;
       const key=safeKey(`${sheetTL}|${displayRM}`);
       const ex=existingLeads[key]||{};
+      // When monthly tab configured: RMs not in it are auto-deactivated (preserve last target frozen)
+      const monthlyTgtVal=_tTab?(getMonthlyTgt(displayRM,sheetRM)||0):((getMonthlyTgt(displayRM,sheetRM)||parseFloat(r['Target (INR)'])||0)||(ex.target||0));
+      const autoDeact=_tTab&&monthlyTgtVal===0&&!ex.inactive&&(ex.target||0)>0;
+      if(autoDeact)autoDeactivated.push(displayRM);
+      const rmTarget=autoDeact?(ex.target||0):monthlyTgtVal;
+      const rmInactive=ex.inactive||autoDeact;
       const rmObj={
         rm:displayRM,tl:sheetTL,city:sheetCity,
-        target:_tTab?(getMonthlyTgt(displayRM,sheetRM)||0):((getMonthlyTgt(displayRM,sheetRM)||parseFloat(r['Target (INR)'])||0)||(ex.target||0)),
+        target:rmTarget,
         achieved:paid,
         refund:0,
-        inactive:ex.inactive||false,
+        inactive:rmInactive,
         monthlyTgt:parseFloat(r['Monthly Leads Target'])||0,
         monthlyAchv:parseFloat(r['Monthly Leads Achieved'])||0,
         dailyTgt:parseFloat(r['Daily Leads Target'])||0,
@@ -726,8 +734,8 @@ async function syncFromGoogleSheet({silent=false}={}){
       ALL_RMS.push(rmObj);
       s[key]={tl:sheetTL,rm:displayRM,city:sheetCity,
         target:rmObj.target,netAchieved:rmObj.achieved,
-        inactive:ex.inactive||false,
-        targetMonth:(rmObj.target>0)?curMK:(ex.targetMonth||''),
+        inactive:rmInactive,
+        targetMonth:(rmObj.target>0&&!rmInactive)?curMK:(ex.targetMonth||''),
         monthlyLeads:rmObj.monthlyTgt||ex.monthlyLeads||0,
         monthlyAchieved:rmObj.monthlyAchv||ex.monthlyAchieved||0,
         dailyLeads:rmObj.dailyTgt||ex.dailyLeads||0,
@@ -763,7 +771,7 @@ async function syncFromGoogleSheet({silent=false}={}){
     ZONE.tls.forEach(tl=>{
       const n=tl.name.toLowerCase();
       const rms=ALL_RMS.filter(r=>r.tl.toLowerCase()===n);
-      tl.target=rms.reduce((s,r)=>s+(r.target||0),0);
+      tl.target=rms.filter(r=>!r.inactive).reduce((s,r)=>s+(r.target||0),0);
       tl.achieved=payByTL[n]!=null?payByTL[n]:rms.reduce((s,r)=>s+(r.achieved||0),0);
       tl.monthlyTgt=rms.reduce((s,r)=>s+(r.monthlyTgt||0),0);
       tl.rms=rms.length;tl.filledRMs=rms.length;
@@ -800,7 +808,8 @@ async function syncFromGoogleSheet({silent=false}={}){
       if(el){el.textContent='✅ Auto-synced at '+t+' · ₹'+total.toLocaleString('en-IN');el.style.color='#16A34A';}
     }else{
       const sampleNames=rows.slice(0,3).map(r=>(r.RM||'').trim()).join(', ');
-      if(el){el.textContent='✅ Synced '+rows.length+' RMs · ₹'+total.toLocaleString('en-IN')+' | Sheet: '+sampleNames+' … — reloading…';el.style.color='#16A34A';}
+      const deactNote=autoDeactivated.length?` · Auto-deactivated ${autoDeactivated.length}: ${autoDeactivated.join(', ')}`:''
+      if(el){el.textContent='✅ Synced '+rows.length+' RMs · ₹'+total.toLocaleString('en-IN')+deactNote+' — reloading…';el.style.color='#16A34A';}
       setTimeout(()=>window.location.reload(),1500);
     }
   }catch(e){
