@@ -481,12 +481,15 @@ let _payDateKey=null; // cached column name, reset on each sync
 function detectPayDateKey(rows){
   if(!rows||!rows.length)return null;
   const KNOWN=['Date','Payment Date','date','DATE','Pmt Date','PaymentDate','PAYMENT DATE','payment_date','Trans Date','Transaction Date'];
-  const first=rows[0];
-  for(const k of KNOWN){if(first[k]!==undefined&&parsePayDate(String(first[k]||'').trim()))return k;}
-  // fallback: scan all keys for one whose value parses as a date
-  for(const k of Object.keys(first)){
-    const v=String(first[k]||'').trim();
-    if(v&&parsePayDate(v)&&isNaN(Number(v)))return k;
+  const sample=rows.slice(0,10);
+  // Check known column names first — use first row to confirm column exists, then scan sample for a parseable date
+  for(const k of KNOWN){
+    if(sample[0][k]===undefined)continue;
+    if(sample.some(r=>parsePayDate(String(r[k]||'').trim())))return k;
+  }
+  // Fallback: scan all keys across sample rows for date-like values
+  for(const k of Object.keys(sample[0])){
+    if(sample.some(r=>{const v=String(r[k]||'').trim();return v&&parsePayDate(v)&&isNaN(Number(v));}))return k;
   }
   return null;
 }
