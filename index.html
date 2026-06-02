@@ -598,8 +598,36 @@ async function syncFromGoogleSheet({silent=false}={}){
         }
       });
     }
-    // Fuzzy fallback: find best matching entry in monthlyTgtRows for a given RM name
+    // Pre-compute exclusive one-to-one assignment: each June entry → at most one sheet RM
+    // Prevents same June target being counted for multiple sheet RMs (double-counting)
+    const precomputedTargets={};
+    if(_tTab&&monthlyTgtRows.length>0){
+      const sheetNorms=[...new Set(rows.map(r=>normN((r.RM||'').trim())).filter(Boolean))];
+      const candidates=[];
+      for(const norm of sheetNorms){
+        for(let i=0;i<monthlyTgtRows.length;i++){
+          const entry=monthlyTgtRows[i];
+          let score=0;
+          for(const cand of[entry.actualName,entry.rmName]){
+            if(!cand)continue;
+            const cn=normN(cand);
+            if(cn===norm){score=1.0;break;}
+            const sc=fuzzyRMScore(norm,cn);
+            if(sc>score)score=sc;
+          }
+          if(score>0.65)candidates.push({norm,entryIdx:i,score});
+        }
+      }
+      candidates.sort((a,b)=>b.score-a.score);
+      const usedRMs=new Set(),usedEntries=new Set();
+      for(const c of candidates){
+        if(usedRMs.has(c.norm)||usedEntries.has(c.entryIdx))continue;
+        usedRMs.add(c.norm);usedEntries.add(c.entryIdx);
+        precomputedTargets[c.norm]=monthlyTgtRows[c.entryIdx].tgt;
+      }
+    }
     const getMonthlyTgt=(dispRM,shRM)=>{
+      if(_tTab)return precomputedTargets[normN(shRM)]||precomputedTargets[normN(dispRM)]||0;
       const exact=monthlyTgtMap[normN(dispRM)]||monthlyTgtMap[normN(shRM)];
       if(exact)return exact;
       let best=0,bestTgt=0;
