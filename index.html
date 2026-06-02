@@ -2921,12 +2921,12 @@ function AllTeamsPanel(){
         {tableView==='rm'&&(()=>{
           const allRMs=ALL_RMS.filter(r=>!r.inactive&&(cityF==='All'||r.city===cityF));
           const sorted=[...allRMs].sort((a,b)=>{
-            const pa=pct(filtData?filtData.rmPayments[a.rm.toLowerCase()]||0:a.achieved,a.target);
-            const pb=pct(filtData?filtData.rmPayments[b.rm.toLowerCase()]||0:b.achieved,b.target);
+            const pa=pct(filtData?filtData.rmPayments[a.rm.toLowerCase()]||0:a.achieved,effTgtForRange(a,dateRange));
+            const pb=pct(filtData?filtData.rmPayments[b.rm.toLowerCase()]||0:b.achieved,effTgtForRange(b,dateRange));
             return rmSort==='high'?pb-pa:pa-pb;
           });
           const totR=sorted.reduce((s,r)=>s+(filtData?filtData.rmPayments[r.rm.toLowerCase()]||0:r.achieved),0);
-          const totT=sorted.reduce((s,r)=>s+r.target,0);
+          const totT=sorted.reduce((s,r)=>s+effTgtForRange(r,dateRange),0);
           return(
             <div style={{overflowX:'auto'}}>
               <table style={{width:'100%',borderCollapse:'collapse',fontSize:13,minWidth:900}}>
@@ -2954,7 +2954,7 @@ function AllTeamsPanel(){
                       </td>
                       <td style={{...td,color:B.muted,fontSize:12}}>{r.tl}</td>
                       <td style={td}>{r.city}</td>
-                      <td style={tdR}>{Number(r.target).toLocaleString('en-IN')}</td>
+                      <td style={tdR}>{Number(er).toLocaleString('en-IN')}</td>
                       <td style={tdR}>{Number(rma).toLocaleString('en-IN')}</td>
                       <td style={tdR}><span style={{color:pClr(rp),fontWeight:700}}>{rp}%</span></td>
                       <td style={tdR}>{r.monthlyTgt}</td>
@@ -2998,7 +2998,8 @@ function AllTeamsPanel(){
             <tbody>
               {[...tls].sort((a,b)=>pct(b.achieved,b.target)-pct(a.achieved,a.target)).flatMap((t,i)=>{
                 const tla=filtData?filtData.tlPayments[t.name.toLowerCase()]||0:t.achieved;
-                const p=pct(tla,t.target);
+                const tlEffTgt=ALL_RMS.filter(r=>!r.inactive&&r.tl===t.name).reduce((s,r)=>s+effTgtForRange(r,dateRange),0);
+                const p=pct(tla,tlEffTgt);
                 const stc=p>=80?B.green:p>=60?B.amber:B.red;
                 const stb=p>=80?B.greenBg:p>=60?B.amberBg:B.redBg;
                 const stl=p>=80?'On Track':p>=60?'At Risk':'Behind';
@@ -3016,7 +3017,7 @@ function AllTeamsPanel(){
                     </td>
                     <td style={td}>{t.city}</td>
                     <td style={tdR}>{t.rms}</td>
-                    <td style={tdR}>{Number(t.target).toLocaleString('en-IN')}</td>
+                    <td style={tdR}>{Number(tlEffTgt).toLocaleString('en-IN')}</td>
                     <td style={tdR}>{Number(tla).toLocaleString('en-IN')}</td>
                     <td style={tdR}><span style={{color:pClr(p),fontWeight:700}}>{p}%</span></td>
                     <td style={tdR}>{t.monthlyTgt}</td>
@@ -3043,7 +3044,7 @@ function AllTeamsPanel(){
                       </td>
                       <td style={td}>{r.city}</td>
                       <td style={tdR}>{r.clinics?.length||0}</td>
-                      <td style={tdR}>{Number(r.target).toLocaleString('en-IN')}</td>
+                      <td style={tdR}>{Number(er).toLocaleString('en-IN')}</td>
                       <td style={tdR}>{Number(rma).toLocaleString('en-IN')}</td>
                       <td style={tdR}><span style={{color:pClr(rp),fontWeight:700}}>{rp}%</span></td>
                       <td style={tdR}>{r.monthlyTgt}</td>
@@ -3502,10 +3503,10 @@ function ZoneOverviewPanel(){
                 <tr style={{background:B.navy}}>
                   <td style={{padding:'12px 14px',color:'#fff',fontWeight:800,fontSize:13}}>TOTALS — {ZONE.tls.length} TLs</td>
                   {[ZONE.tls.reduce((s,t)=>s+t.rms,0),ZONE.tls.reduce((s,t)=>s+t.filledRMs,0)].map((v,i)=><td key={i} className="num" style={{color:'rgba(255,255,255,.9)',fontWeight:700}}>{v}</td>)}
-                  <td className="num" style={{color:'rgba(255,255,255,.9)',fontWeight:700}}>{Number(ZONE.tls.reduce((s,t)=>s+t.target,0)).toLocaleString('en-IN')}</td>
+                  <td className="num" style={{color:'rgba(255,255,255,.9)',fontWeight:700}}>{Number(effZoneTgt).toLocaleString('en-IN')}</td>
                   <td className="num" style={{color:'rgba(255,255,255,.9)',fontWeight:700}}>0</td>
                   <td className="num" style={{color:'rgba(255,255,255,.9)',fontWeight:700}}>{Number(filtData?filtData.total:ZONE.tls.reduce((s,t)=>s+t.achieved,0)).toLocaleString('en-IN')}</td>
-                  <td className="num" style={{color:'rgba(255,255,255,.9)',fontWeight:700}}>{pct(filtData?filtData.total:ZONE.tls.reduce((s,t)=>s+t.achieved,0),ZONE.tls.reduce((s,t)=>s+t.target,0))}%</td>
+                  <td className="num" style={{color:'rgba(255,255,255,.9)',fontWeight:700}}>{pct(filtData?filtData.total:ZONE.tls.reduce((s,t)=>s+t.achieved,0),effZoneTgt)}%</td>
                   <td className="num" style={{color:'rgba(255,255,255,.9)',fontWeight:700}}>{ZONE.tls.reduce((s,t)=>s+t.monthlyTgt,0)}</td>
                   <td className="num" style={{color:'rgba(255,255,255,.9)',fontWeight:700}}>{ZONE.tls.reduce((s,t)=>s+t.monthlyAchv,0)}</td>
                   <td className="num" style={{color:'rgba(255,255,255,.9)',fontWeight:700}}>{pct(ZONE.tls.reduce((s,t)=>s+t.monthlyAchv,0),ZONE.tls.reduce((s,t)=>s+t.monthlyTgt,0))}%</td>
