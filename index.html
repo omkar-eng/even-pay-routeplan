@@ -574,10 +574,12 @@ async function syncFromGoogleSheet({silent=false}={}){
   try{
     const bust='&_='+Date.now();
     const _tTab=(_cache.sync_settings?.targetsTab||'').trim();
-    const [jTargets,jPayments,jMonthlyTgts]=await Promise.all([
+    const _lmTab=(_cache.sync_settings?.lastMonthTab||'').trim();
+    const [jTargets,jPayments,jMonthlyTgts,jLastMonthTgts]=await Promise.all([
       fetch(SHEET_SCRIPT_URL+'?tab=targets'+bust,{cache:'no-store'}).then(r=>r.json()),
       fetch(SHEET_SCRIPT_URL+'?tab=payments'+bust,{cache:'no-store'}).then(r=>r.json()),
       _tTab?fetch(SHEET_SCRIPT_URL+'?tab='+encodeURIComponent(_tTab)+bust,{cache:'no-store'}).then(r=>r.json()).catch(()=>null):Promise.resolve(null),
+      _lmTab?fetch(SHEET_SCRIPT_URL+'?tab='+encodeURIComponent(_lmTab)+bust,{cache:'no-store'}).then(r=>r.json()).catch(()=>null):Promise.resolve(null),
     ]);
     if(jTargets.status!=='ok')throw new Error('targets: '+(jTargets.message||'error'));
     if(jPayments.status!=='ok')throw new Error('payments: '+(jPayments.message||'error'));
@@ -645,6 +647,44 @@ async function syncFromGoogleSheet({silent=false}={}){
       return bestTgt;
     };
     if(el&&_tTab){el.textContent=`Monthly targets tab: ${monthlyTgtRows.length} RMs loaded…`;el.style.color='#64748B';}
+
+    // Build last month target map from dedicated tab if configured
+    const lastMTgtRows=[];
+    if(jLastMonthTgts?.status==='ok'){
+      const tRows=jLastMonthTgts.data?.rows||jLastMonthTgts.data?.targets||(Array.isArray(jLastMonthTgts.data)?jLastMonthTgts.data:[]);
+      tRows.forEach(row=>{
+        const actualName=(row['Actual RM Name']||'').toString().trim();
+        const rmName=(row['RM Name']||'').toString().trim();
+        const rawTgt=row['Target (₹)']??row['Target (INR)']??row['Target']??'';
+        const tgt=typeof rawTgt==='number'?rawTgt:parseFloat(rawTgt.toString().replace(/[₹,\s]/g,''))||0;
+        if(tgt>0)lastMTgtRows.push({actualName,rmName,tgt});
+      });
+    }
+    const precomputedLastMTargets={};
+    if(_lmTab&&lastMTgtRows.length>0){
+      const sheetNorms=[...new Set(rows.map(r=>normN((r.RM||'').trim())).filter(Boolean))];
+      const lmCandidates=[];
+      for(const norm of sheetNorms){
+        for(let i=0;i<lastMTgtRows.length;i++){
+          const entry=lastMTgtRows[i];let score=0;
+          for(const cand of[entry.actualName,entry.rmName]){
+            if(!cand)continue;const cn=normN(cand);
+            if(cn===norm){score=1.0;break;}
+            const sc=fuzzyRMScore(norm,cn);if(sc>score)score=sc;
+          }
+          if(score>0.65)lmCandidates.push({norm,entryIdx:i,score});
+        }
+      }
+      lmCandidates.sort((a,b)=>b.score-a.score);
+      const usedRMs=new Set(),usedEntries=new Set();
+      for(const c of lmCandidates){
+        if(usedRMs.has(c.norm)||usedEntries.has(c.entryIdx))continue;
+        usedRMs.add(c.norm);usedEntries.add(c.entryIdx);
+        precomputedLastMTargets[c.norm]=lastMTgtRows[c.entryIdx].tgt;
+      }
+    }
+    const getLastMTgt=(dispRM,shRM)=>(_lmTab&&lastMTgtRows.length>0)
+      ?(precomputedLastMTargets[normN(shRM)]||precomputedLastMTargets[normN(dispRM)]||0):0;
 
     // Build payment totals by RM and by TL (case-insensitive)
     const payByRM={};const payByTL={};
@@ -744,8 +784,9 @@ async function syncFromGoogleSheet({silent=false}={}){
         :sheetRM;
       const key=safeKey(`${sheetTL}|${displayRM}`);
       const ex=existingLeads[key]||{};
-      // Snapshot previous target as lastMonthTarget when the stored target belongs to a prior month
-      const lastMonthTarget=(ex.targetMonth&&ex.targetMonth!==curMK)?(ex.target||ex.lastMonthTarget||0):(ex.lastMonthTarget||0);
+      // lastMonthTarget: explicit tab takes priority; otherwise infer from prior-month Firestore value
+      const lmFromTab=getLastMTgt(displayRM,sheetRM);
+      const lastMonthTarget=lmFromTab||(ex.targetMonth&&ex.targetMonth!==curMK?(ex.target||ex.lastMonthTarget||0):(ex.lastMonthTarget||0));
       // When monthly tab is configured AND has data: RMs not in it are auto-deactivated
       const monthlyTgtVal=hasTabData?(getMonthlyTgt(displayRM,sheetRM)||0):((getMonthlyTgt(displayRM,sheetRM)||parseFloat(r['Target (INR)'])||0)||(ex.target||0));
       const autoDeact=hasTabData&&monthlyTgtVal===0&&!ex.inactive;
@@ -4320,6 +4361,7 @@ function AdminPanel(){
   const[autoSyncEnabled,setAutoSyncEnabled]=useState(!!_cache.sync_settings?.enabled);
   const[syncIntervalMin,setSyncIntervalMin]=useState(_cache.sync_settings?.intervalMin||30);
   const[targetsTab,setTargetsTab]=useState(_cache.sync_settings?.targetsTab||'');
+  const[lastMonthTab,setLastMonthTab]=useState(_cache.sync_settings?.lastMonthTab||'');
   const[archiveMsg,setArchiveMsg]=useState('');
   const[autoSyncMsg,setAutoSyncMsg]=useState('');
   const[payDiag,setPayDiag]=useState(null);
@@ -4509,7 +4551,7 @@ function AdminPanel(){
   };
 
   const handleSaveAutoSync=async()=>{
-    const settings={..._cache.sync_settings,enabled:autoSyncEnabled,intervalMin:Number(syncIntervalMin),targetsTab:targetsTab.trim()};
+    const settings={..._cache.sync_settings,enabled:autoSyncEnabled,intervalMin:Number(syncIntervalMin),targetsTab:targetsTab.trim(),lastMonthTab:lastMonthTab.trim()};
     _cache.sync_settings=settings;
     await db.collection('config').doc('sync_settings').set(settings).catch(()=>{});
     setupAutoSync();
@@ -5139,6 +5181,13 @@ function AdminPanel(){
               <div style={{fontSize:12,color:B.muted,marginBottom:8}}>Name of the sheet tab that contains this month's targets. Leave blank to use Target (INR) from the main targets tab. Update each month (e.g. "RM Targets July").</div>
               <input value={targetsTab} onChange={e=>setTargetsTab(e.target.value)}
                 placeholder="e.g. RM Targets June"
+                style={{padding:'9px 12px',border:`1.5px solid ${B.line}`,borderRadius:8,fontSize:13,width:'100%',maxWidth:320,outline:'none',boxSizing:'border-box'}}/>
+            </div>
+            <div style={{marginBottom:14}}>
+              <div style={{fontWeight:600,fontSize:13,color:B.navy,marginBottom:6}}>Last Month Targets Tab</div>
+              <div style={{fontSize:12,color:B.muted,marginBottom:8}}>Name of the sheet tab with last month's targets. Used to show correct target when "Last Month" filter is selected (e.g. "RM Targets May").</div>
+              <input value={lastMonthTab} onChange={e=>setLastMonthTab(e.target.value)}
+                placeholder="e.g. RM Targets May"
                 style={{padding:'9px 12px',border:`1.5px solid ${B.line}`,borderRadius:8,fontSize:13,width:'100%',maxWidth:320,outline:'none',boxSizing:'border-box'}}/>
             </div>
             <div style={{display:'flex',gap:10,alignItems:'center',marginBottom:20}}>
