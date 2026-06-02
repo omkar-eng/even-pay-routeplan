@@ -570,14 +570,26 @@ async function syncFromGoogleSheet({silent=false}={}){
   if(el){el.textContent=silent?'Auto-syncing…':'Syncing…';el.style.color='#64748B';}
   try{
     const bust='&_='+Date.now();
-    const [jTargets,jPayments]=await Promise.all([
+    const _tTab=(_cache.sync_settings?.targetsTab||'').trim();
+    const [jTargets,jPayments,jMonthlyTgts]=await Promise.all([
       fetch(SHEET_SCRIPT_URL+'?tab=targets'+bust,{cache:'no-store'}).then(r=>r.json()),
       fetch(SHEET_SCRIPT_URL+'?tab=payments'+bust,{cache:'no-store'}).then(r=>r.json()),
+      _tTab?fetch(SHEET_SCRIPT_URL+'?tab='+encodeURIComponent(_tTab)+bust,{cache:'no-store'}).then(r=>r.json()).catch(()=>null):Promise.resolve(null),
     ]);
     if(jTargets.status!=='ok')throw new Error('targets: '+(jTargets.message||'error'));
     if(jPayments.status!=='ok')throw new Error('payments: '+(jPayments.message||'error'));
     const rows=jTargets.data.targets||[];
     const paymentRows=jPayments.data.payments||[];
+    // Build monthly target map from the dedicated targets tab if configured
+    const monthlyTgtMap={};
+    if(jMonthlyTgts?.status==='ok'){
+      const tRows=jMonthlyTgts.data?.rows||jMonthlyTgts.data?.targets||(Array.isArray(jMonthlyTgts.data)?jMonthlyTgts.data:[]);
+      tRows.forEach(row=>{
+        const name=((row['Actual RM Name']||row['RM Name']||'')).trim();
+        const tgt=parseFloat((row['Target (₹)']||row['Target (INR)']||'').toString().replace(/[₹,\s]/g,''))||0;
+        if(name&&tgt>0)monthlyTgtMap[name.toLowerCase()]=tgt;
+      });
+    }
 
     // Build payment totals by RM and by TL (case-insensitive)
     const payByRM={};const payByTL={};
@@ -676,7 +688,7 @@ async function syncFromGoogleSheet({silent=false}={}){
       const ex=existingLeads[key]||{};
       const rmObj={
         rm:displayRM,tl:sheetTL,city:sheetCity,
-        target:(parseFloat(r['Target (INR)'])||0)||(ex.target||0),
+        target:(monthlyTgtMap[displayRM.toLowerCase()]||monthlyTgtMap[sheetRMLo]||parseFloat(r['Target (INR)'])||0)||(ex.target||0),
         achieved:paid,
         refund:0,
         inactive:ex.inactive||false,
@@ -692,7 +704,7 @@ async function syncFromGoogleSheet({silent=false}={}){
       s[key]={tl:sheetTL,rm:displayRM,city:sheetCity,
         target:rmObj.target,netAchieved:rmObj.achieved,
         inactive:ex.inactive||false,
-        targetMonth:(parseFloat(r['Target (INR)'])||0)>0?curMK:(ex.targetMonth||''),
+        targetMonth:((monthlyTgtMap[displayRM.toLowerCase()]||monthlyTgtMap[sheetRMLo]||parseFloat(r['Target (INR)'])||0)>0)?curMK:(ex.targetMonth||''),
         monthlyLeads:rmObj.monthlyTgt||ex.monthlyLeads||0,
         monthlyAchieved:rmObj.monthlyAchv||ex.monthlyAchieved||0,
         dailyLeads:rmObj.dailyTgt||ex.dailyLeads||0,
@@ -4240,6 +4252,7 @@ function AdminPanel(){
   // ── Auto-sync state ──
   const[autoSyncEnabled,setAutoSyncEnabled]=useState(!!_cache.sync_settings?.enabled);
   const[syncIntervalMin,setSyncIntervalMin]=useState(_cache.sync_settings?.intervalMin||30);
+  const[targetsTab,setTargetsTab]=useState(_cache.sync_settings?.targetsTab||'');
   const[autoSyncMsg,setAutoSyncMsg]=useState('');
   const[payDiag,setPayDiag]=useState(null);
   const[resetMsg,setResetMsg]=useState('');
@@ -4415,7 +4428,7 @@ function AdminPanel(){
   };
 
   const handleSaveAutoSync=async()=>{
-    const settings={..._cache.sync_settings,enabled:autoSyncEnabled,intervalMin:Number(syncIntervalMin)};
+    const settings={..._cache.sync_settings,enabled:autoSyncEnabled,intervalMin:Number(syncIntervalMin),targetsTab:targetsTab.trim()};
     _cache.sync_settings=settings;
     await db.collection('config').doc('sync_settings').set(settings).catch(()=>{});
     setupAutoSync();
@@ -5040,6 +5053,13 @@ function AdminPanel(){
             {autoSyncEnabled&&<div style={{fontSize:12,color:B.muted,background:B.brandLight,borderRadius:8,padding:'8px 12px',marginBottom:14}}>
               The app will silently fetch fresh data from your sheet every {syncIntervalMin} minute{syncIntervalMin>1?'s':''} while it is open. No page reload — views update automatically.
             </div>}
+            <div style={{marginBottom:14}}>
+              <div style={{fontWeight:600,fontSize:13,color:B.navy,marginBottom:6}}>Monthly Targets Tab</div>
+              <div style={{fontSize:12,color:B.muted,marginBottom:8}}>Name of the sheet tab that contains this month's targets. Leave blank to use Target (INR) from the main targets tab. Update each month (e.g. "RM Targets July").</div>
+              <input value={targetsTab} onChange={e=>setTargetsTab(e.target.value)}
+                placeholder="e.g. RM Targets June"
+                style={{padding:'9px 12px',border:`1.5px solid ${B.line}`,borderRadius:8,fontSize:13,width:'100%',maxWidth:320,outline:'none',boxSizing:'border-box'}}/>
+            </div>
             <div style={{display:'flex',gap:10,alignItems:'center'}}>
               <button onClick={handleSaveAutoSync}
                 style={{padding:'9px 20px',background:B.brand,color:'#fff',border:'none',borderRadius:10,fontSize:13,fontWeight:700,cursor:'pointer'}}>
