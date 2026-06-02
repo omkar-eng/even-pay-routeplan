@@ -896,7 +896,7 @@ const ALL_RMS=[
 function effTgtForRange(r,dateRange){
   if(dateRange==='This Month'){
     const curMK=new Date().toISOString().slice(0,7);
-    return(r.targetMonth&&r.targetMonth!==curMK)?0:(r.target||0);
+    return r.targetMonth===curMK?(r.target||0):0;
   }
   return r.target||0;
 }
