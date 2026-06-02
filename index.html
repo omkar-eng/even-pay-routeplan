@@ -2714,7 +2714,7 @@ function AllTeamsPanel(){
     const r=getDateRangeFromLabel(dateRange);return r?computeFilteredPayments(r.from,r.to):null;
   })();
   const tls=ZONE.tls.filter(t=>cityF==='All'||t.city===cityF);
-  const totTarget=tls.reduce((s,t)=>s+t.target,0);
+  const totTarget=ALL_RMS.filter(r=>!r.inactive&&(cityF==='All'||r.city===cityF)).reduce((s,r)=>s+effTgtForRange(r,dateRange),0);
   const totAchv=filtData?tls.reduce((s,t)=>s+(filtData.tlPayments[t.name.toLowerCase()]||0),0):tls.reduce((s,t)=>s+t.achieved,0);
   const totRMs=tls.reduce((s,t)=>s+t.rms,0);
   const totMthlyTgt=tls.reduce((s,t)=>s+t.monthlyTgt,0);
@@ -3365,7 +3365,8 @@ function ZoneOverviewPanel(){
     if(dateRange==='Custom'){if(!customFrom||!customTo)return null;return computeFilteredPayments(parseDateInput(customFrom),parseDateInput(customTo));}
     const r=getDateRangeFromLabel(dateRange);return r?computeFilteredPayments(r.from,r.to):null;
   })();
-  const actual=ZONE.achieved-ZONE.refund;const zp=pct(actual,ZONE.target);
+  const effZoneTgt=ALL_RMS.filter(r=>!r.inactive).reduce((s,r)=>s+effTgtForRange(r,dateRange),0);
+  const actual=ZONE.achieved-ZONE.refund;const zp=pct(actual,effZoneTgt);
   const totalRMs=ZONE.cities.reduce((s,c)=>s+c.rms,0);
   const filledRMs=ZONE.cities.reduce((s,c)=>s+c.filledRMs,0);
   const leadsPct=pct(ZONE.leads.achieved,ZONE.leads.target);
@@ -3376,9 +3377,9 @@ function ZoneOverviewPanel(){
   const top5=rmRanked.slice(0,5);const bot5=rmRanked.slice(-5).reverse();
 
   const filtTotal=filtData?filtData.total:actual;
-  const filtZp=pct(filtTotal,ZONE.target);
+  const filtZp=pct(filtTotal,effZoneTgt);
   const KpiRow=()=><div style={{display:'flex',gap:16,marginBottom:24}}>
-    <StatCard title="Total Target" value={fmtN(ZONE.target)} icon="🎯"/>
+    <StatCard title="Total Target" value={fmtN(effZoneTgt)} icon="🎯"/>
     <StatCard title={filtData?`Payments (${dateRange})`:'Actual Achieved'} value={fmtN(filtTotal)} sub={`${filtZp}% of target`} icon="💰" highlight/>
     <StatCard title="RMs Filled" value={`${filledRMs} / ${totalRMs}`} icon="👥"/>
     <StatCard title="Monthly Leads" value={`${ZONE.leads.achieved} / ${ZONE.leads.target}`} icon="📋"/>
@@ -3396,7 +3397,7 @@ function ZoneOverviewPanel(){
           <div style={{background:'rgba(255,255,255,.13)',borderRadius:12,padding:'12px',marginTop:12}}>
             <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:6}}>
               <div style={{color:'#fff',fontSize:34,fontWeight:900,lineHeight:1}}>{zp}%</div>
-              <div><div style={{color:'#fff',fontSize:13,fontWeight:700}}>{fmtN(actual)}</div><div style={{color:'rgba(255,255,255,.55)',fontSize:11}}>of {fmtN(ZONE.target)}</div></div>
+              <div><div style={{color:'#fff',fontSize:13,fontWeight:700}}>{fmtN(actual)}</div><div style={{color:'rgba(255,255,255,.55)',fontSize:11}}>of {fmtN(effZoneTgt)}</div></div>
             </div>
             <div style={{background:'rgba(255,255,255,.2)',borderRadius:6,height:8}}>
               <div style={{width:`${Math.min(zp,100)}%`,height:'100%',background:zp>=90?'#4ADE80':zp>=60?'#FCD34D':'#F87171',borderRadius:6}}/>
