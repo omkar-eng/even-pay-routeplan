@@ -711,7 +711,7 @@ async function syncFromGoogleSheet({silent=false}={}){
       const ex=existingLeads[key]||{};
       const rmObj={
         rm:displayRM,tl:sheetTL,city:sheetCity,
-        target:(getMonthlyTgt(displayRM,sheetRM)||parseFloat(r['Target (INR)'])||0)||(ex.target||0),
+        target:_tTab?(getMonthlyTgt(displayRM,sheetRM)||0):((getMonthlyTgt(displayRM,sheetRM)||parseFloat(r['Target (INR)'])||0)||(ex.target||0)),
         achieved:paid,
         refund:0,
         inactive:ex.inactive||false,
@@ -727,7 +727,7 @@ async function syncFromGoogleSheet({silent=false}={}){
       s[key]={tl:sheetTL,rm:displayRM,city:sheetCity,
         target:rmObj.target,netAchieved:rmObj.achieved,
         inactive:ex.inactive||false,
-        targetMonth:((getMonthlyTgt(displayRM,sheetRM)||parseFloat(r['Target (INR)'])||0)>0)?curMK:(ex.targetMonth||''),
+        targetMonth:(rmObj.target>0)?curMK:(ex.targetMonth||''),
         monthlyLeads:rmObj.monthlyTgt||ex.monthlyLeads||0,
         monthlyAchieved:rmObj.monthlyAchv||ex.monthlyAchieved||0,
         dailyLeads:rmObj.dailyTgt||ex.dailyLeads||0,
