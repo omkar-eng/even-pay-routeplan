@@ -898,6 +898,7 @@ function effTgtForRange(r,dateRange){
     const curMK=new Date().toISOString().slice(0,7);
     return r.targetMonth===curMK?(r.target||0):0;
   }
+  if(dateRange==='Single Date'||dateRange==='Custom')return 0;
   return r.target||0;
 }
 
