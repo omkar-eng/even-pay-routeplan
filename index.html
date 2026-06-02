@@ -366,7 +366,7 @@ async function checkAndResetMonthlyTargets(){
     }
   }catch(e){console.warn('monthly_reset check:',e);}
   // Extra safety: never auto-reset if targets were already set this month
-  const hasCurrentMonthTargets=Object.values(_cache.targets).some(t=>(t.target||0)>0);
+  const hasCurrentMonthTargets=Object.values(_cache.targets).some(t=>(!t.targetMonth||t.targetMonth===monthKey)&&(t.target||0)>0);
   if(hasCurrentMonthTargets)return false;
   // ── Archive outgoing month before zeroing ──
   const prevMonthKey=_cache.monthly_reset?.month; // last recorded month
@@ -963,7 +963,9 @@ function bestFuzzyRM(rmName,tlName){
 function effTgtForRange(r,dateRange){
   if(dateRange==='This Month'){
     const curMK=new Date().toISOString().slice(0,7);
-    return r.targetMonth===curMK?(r.target||0):0;
+    // Hide only if targetMonth is explicitly set to a different (past) month
+    if(r.targetMonth&&r.targetMonth!==curMK)return 0;
+    return r.target||0;
   }
   if(dateRange==='Single Date'||dateRange==='Custom')return 0;
   return r.target||0;
