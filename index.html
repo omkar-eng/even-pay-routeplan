@@ -354,7 +354,20 @@ async function initFirestore(){
 }
 async function checkAndResetMonthlyTargets(){
   const monthKey=new Date().toISOString().slice(0,7); // "YYYY-MM"
-  if((_cache.monthly_reset||{}).month===monthKey)return false; // already reset this month
+  // Cache check first (fast path)
+  if((_cache.monthly_reset||{}).month===monthKey)return false;
+  // Cache may be stale — do a fresh Firestore read as authoritative guard
+  try{
+    const freshDoc=await db.collection('config').doc('monthly_reset').get();
+    const freshData=freshDoc.exists?freshDoc.data():{};
+    if(freshData.month===monthKey){
+      _cache.monthly_reset=freshData; // sync cache
+      return false;
+    }
+  }catch(e){console.warn('monthly_reset check:',e);}
+  // Extra safety: never auto-reset if targets were already set this month
+  const hasCurrentMonthTargets=Object.values(_cache.targets).some(t=>t.targetMonth===monthKey&&(t.target||0)>0);
+  if(hasCurrentMonthTargets)return false;
   // ── Archive outgoing month before zeroing ──
   const prevMonthKey=_cache.monthly_reset?.month; // last recorded month
   if(prevMonthKey){
