@@ -582,14 +582,17 @@ async function syncFromGoogleSheet({silent=false}={}){
     const paymentRows=jPayments.data.payments||[];
     // Build monthly target map from the dedicated targets tab if configured
     const monthlyTgtMap={};
+    const normN=s=>s.toString().toLowerCase().trim().replace(/\s+/g,' ');
     if(jMonthlyTgts?.status==='ok'){
       const tRows=jMonthlyTgts.data?.rows||jMonthlyTgts.data?.targets||(Array.isArray(jMonthlyTgts.data)?jMonthlyTgts.data:[]);
       tRows.forEach(row=>{
-        const name=((row['Actual RM Name']||row['RM Name']||'')).trim();
-        const tgt=parseFloat((row['Target (₹)']||row['Target (INR)']||'').toString().replace(/[₹,\s]/g,''))||0;
-        if(name&&tgt>0)monthlyTgtMap[name.toLowerCase()]=tgt;
+        const name=(row['Actual RM Name']||row['RM Name']||'').toString().trim();
+        const rawTgt=row['Target (₹)']??row['Target (INR)']??row['Target']??'';
+        const tgt=typeof rawTgt==='number'?rawTgt:parseFloat(rawTgt.toString().replace(/[₹,\s]/g,''))||0;
+        if(name&&tgt>0)monthlyTgtMap[normN(name)]=tgt;
       });
     }
+    if(el&&_tTab){el.textContent=`Monthly targets tab: ${Object.keys(monthlyTgtMap).length} RMs loaded…`;el.style.color='#64748B';}
 
     // Build payment totals by RM and by TL (case-insensitive)
     const payByRM={};const payByTL={};
@@ -688,7 +691,7 @@ async function syncFromGoogleSheet({silent=false}={}){
       const ex=existingLeads[key]||{};
       const rmObj={
         rm:displayRM,tl:sheetTL,city:sheetCity,
-        target:(monthlyTgtMap[displayRM.toLowerCase()]||monthlyTgtMap[sheetRMLo]||parseFloat(r['Target (INR)'])||0)||(ex.target||0),
+        target:(monthlyTgtMap[normN(displayRM)]||monthlyTgtMap[normN(sheetRM)]||parseFloat(r['Target (INR)'])||0)||(ex.target||0),
         achieved:paid,
         refund:0,
         inactive:ex.inactive||false,
@@ -704,7 +707,7 @@ async function syncFromGoogleSheet({silent=false}={}){
       s[key]={tl:sheetTL,rm:displayRM,city:sheetCity,
         target:rmObj.target,netAchieved:rmObj.achieved,
         inactive:ex.inactive||false,
-        targetMonth:((monthlyTgtMap[displayRM.toLowerCase()]||monthlyTgtMap[sheetRMLo]||parseFloat(r['Target (INR)'])||0)>0)?curMK:(ex.targetMonth||''),
+        targetMonth:((monthlyTgtMap[normN(displayRM)]||monthlyTgtMap[normN(sheetRM)]||parseFloat(r['Target (INR)'])||0)>0)?curMK:(ex.targetMonth||''),
         monthlyLeads:rmObj.monthlyTgt||ex.monthlyLeads||0,
         monthlyAchieved:rmObj.monthlyAchv||ex.monthlyAchieved||0,
         dailyLeads:rmObj.dailyTgt||ex.dailyLeads||0,
