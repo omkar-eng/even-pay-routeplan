@@ -367,7 +367,7 @@ async function checkAndResetMonthlyTargets(){
     db.collection('history').doc(prevMonthKey).set(archiveData).catch(()=>{});
   }
   // ── Zero out live targets ──
-  const resetFields={target:0,refund:0,monthlyLeads:0,dailyLeads:0,renewalTarget:0,
+  const resetFields={target:0,targetMonth:'',refund:0,monthlyLeads:0,dailyLeads:0,renewalTarget:0,
     netAchieved:0,monthlyAchieved:0,dailyAchieved:0,renewalAchieved:0};
   Object.keys(_cache.targets).forEach(k=>{_cache.targets[k]={..._cache.targets[k],...resetFields};});
   const tlReset={};
@@ -893,6 +893,7 @@ const ALL_RMS=[
 // ── APPLY STORE → GLOBALS ─────────────────────────────────────────────────
 function applyStoreToRMs(){
   const store=_cache.targets||{};
+  const curMK=new Date().toISOString().slice(0,7);
 
   // Rebuild ALL_RMS from store — sheet names are source of truth
   ALL_RMS.splice(0,ALL_RMS.length);
@@ -901,7 +902,7 @@ function applyStoreToRMs(){
     ALL_RMS.push({
       rm:e.rm,tl:e.tl,city:e.city||'',
       inactive:e.inactive||false,
-      target:e.target||0,achieved:e.netAchieved||0,refund:e.refund||0,
+      target:(e.targetMonth===curMK?e.target:0)||0,achieved:e.netAchieved||0,refund:e.refund||0,
       monthlyTgt:e.monthlyLeads||0,monthlyAchv:e.monthlyAchieved||0,
       dailyTgt:e.dailyLeads||0,dailyAchv:e.dailyAchieved||0,
       renewalTgt:e.renewalTarget||0,renewalAchv:e.renewalAchieved||0,
@@ -4066,15 +4067,18 @@ function AdminPanel(){
 
   const loadEntry=(tl,rm)=>{
     const e=targets[safeKey(`${tl}|${rm}`)]||{};
-    setForm({target:e.target||'',refund:e.refund||'',monthlyLeads:e.monthlyLeads||'',dailyLeads:e.dailyLeads||'',renewalTarget:e.renewalTarget||'',netAchieved:e.netAchieved||'',monthlyAchieved:e.monthlyAchieved||'',dailyAchieved:e.dailyAchieved||'',renewalAchieved:e.renewalAchieved||''});
+    const mk=new Date().toISOString().slice(0,7);
+    setForm({target:(e.targetMonth===mk?e.target:'')||'',refund:e.refund||'',monthlyLeads:e.monthlyLeads||'',dailyLeads:e.dailyLeads||'',renewalTarget:e.renewalTarget||'',netAchieved:e.netAchieved||'',monthlyAchieved:e.monthlyAchieved||'',dailyAchieved:e.dailyAchieved||'',renewalAchieved:e.renewalAchieved||''});
   };
 
   const saveTargets=async()=>{
     if(!selectedTL||!selectedRM){setSaving('Select TL and RM first');return;}
     setSaving('Saving…');
     const key=safeKey(`${selectedTL}|${selectedRM}`);
+    const curMK=new Date().toISOString().slice(0,7);
     const entry={tl:selectedTL,rm:selectedRM,city:workingRMs.find(r=>r.rm===selectedRM)?.city||'',
       ...Object.fromEntries(Object.entries(form).map(([k,v])=>[k,parseFloat(v)||0])),
+      targetMonth:curMK,
       updated:new Date().toLocaleString('en-IN'),updatedAt:Date.now()};
     const newT={...targets,[key]:entry};
     await saveStore(newT);setTargets(newT);
@@ -4108,7 +4112,7 @@ function AdminPanel(){
     for(const r of ALL_RMS){
       const key=safeKey(`${r.tl}|${r.rm}`);
       const doc={...(_cache.targets[key]||{}),tl:r.tl,rm:r.rm,
-        target:0,refund:0,monthlyLeads:0,dailyLeads:0,renewalTarget:0,
+        target:0,targetMonth:'',refund:0,monthlyLeads:0,dailyLeads:0,renewalTarget:0,
         netAchieved:0,monthlyAchieved:0,dailyAchieved:0,renewalAchieved:0,
         updatedAt:new Date().toISOString()};
       batch.push(db.collection('targets').doc(key).set(doc).then(()=>{_cache.targets[key]=doc;}));
@@ -4197,7 +4201,7 @@ function AdminPanel(){
         await db.collection('targets').doc(oldKey).delete();
         delete _cache.targets[oldKey];
       }
-      await saveRMDoc(editRM.tl,newName,{city:editRM.city,netAchieved:existingData.netAchieved||0,target:existingData.target||0,monthlyLeads:existingData.monthlyLeads||0,clinics:existingData.clinics||[]});
+      await saveRMDoc(editRM.tl,newName,{city:editRM.city,netAchieved:existingData.netAchieved||0,target:existingData.target||0,targetMonth:existingData.targetMonth||'',monthlyLeads:existingData.monthlyLeads||0,clinics:existingData.clinics||[]});
       applyStoreToRMs();window.dispatchEvent(new Event('rmDataUpdated'));
       const updated=workingRMs.map((r,i)=>i===editRM.index?{...r,rm:newName,tl:editRM.tl,city:editRM.city}:r);
       setWorkingRMs(updated);
