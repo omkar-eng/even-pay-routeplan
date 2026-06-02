@@ -5241,42 +5241,63 @@ function FullAccessView({user,onLogout}){
 function ISUserView({user,onLogout}){
   const isMobile=useIsMobile();
   const[dataVer,setDataVer]=useState(0);
+  const[dateRange,setDateRange]=useState('This Month');
   useEffect(()=>{
     const h=()=>setDataVer(v=>v+1);
     window.addEventListener('rmDataUpdated',h);
     return()=>window.removeEventListener('rmDataUpdated',h);
   },[]);
 
-  const myRows=(_cache.payment_rows||[])
+  const allMyRows=(_cache.payment_rows||[])
     .filter(r=>r.is&&r.is.toLowerCase()===(user.name||'').toLowerCase())
-    .map(r=>{
-      const d=parsePayDate(r.date);
-      return{...r,_d:d,_ts:d?d.getTime():0};
-    })
+    .map(r=>{const d=parsePayDate(r.date);return{...r,_d:d,_ts:d?d.getTime():0};})
     .sort((a,b)=>b._ts-a._ts);
+
+  const myRows=(()=>{
+    if(dateRange==='All Time')return allMyRows;
+    const rng=getDateRangeFromLabel(dateRange);
+    if(!rng)return allMyRows;
+    const{from,to}=rng;
+    const toEnd=new Date(to.getFullYear(),to.getMonth(),to.getDate(),23,59,59,999);
+    return allMyRows.filter(r=>r._d&&r._d>=from&&r._d<=toEnd);
+  })();
 
   const total=myRows.reduce((s,r)=>s+r.amount,0);
   const fmtDate=d=>d?d.toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'}):'—';
+  const dateChips=['This Month','Last Month','This Week','All Time'];
 
   return(
     <div style={{background:B.bg,minHeight:'100vh',maxWidth:600,margin:'0 auto',paddingBottom:20}}>
       {/* Header */}
       <div style={{background:'linear-gradient(135deg,#1E1B4B,#4338CA)',padding:'28px 18px 20px'}}>
-        <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:14}}>
           <div>
             <div style={{color:'rgba(255,255,255,.65)',fontSize:12,marginBottom:4}}>Inside Sales</div>
             <div style={{color:'#fff',fontSize:22,fontWeight:800}}>{toTitleCase(user.name)}</div>
             <div style={{color:'rgba(255,255,255,.7)',fontSize:13,marginTop:6}}>
               ₹{total.toLocaleString('en-IN')} · {myRows.length} payment{myRows.length!==1?'s':''}
+              {dateRange!=='All Time'&&allMyRows.length!==myRows.length&&
+                <span style={{color:'rgba(255,255,255,.45)',fontSize:11}}> (all time: ₹{allMyRows.reduce((s,r)=>s+r.amount,0).toLocaleString('en-IN')})</span>}
             </div>
           </div>
           <button onClick={onLogout} style={{background:'rgba(255,255,255,.15)',border:'none',color:'rgba(255,255,255,.8)',borderRadius:8,padding:'6px 14px',fontSize:12,cursor:'pointer',fontWeight:600}}>Log out</button>
+        </div>
+        {/* Date range chips */}
+        <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+          {dateChips.map(c=>(
+            <button key={c} onClick={()=>setDateRange(c)}
+              style={{padding:'5px 12px',borderRadius:20,border:'none',fontSize:12,fontWeight:600,cursor:'pointer',
+                background:dateRange===c?'rgba(255,255,255,.95)':'rgba(255,255,255,.15)',
+                color:dateRange===c?'#2350FF':'rgba(255,255,255,.85)'}}>
+              {c}
+            </button>
+          ))}
         </div>
       </div>
 
       <div style={{padding:'16px 14px'}}>
         {myRows.length===0
-          ?<Card><div style={{fontSize:13,color:B.muted,textAlign:'center',padding:'16px 0'}}>No payments found for your name yet.</div></Card>
+          ?<Card><div style={{fontSize:13,color:B.muted,textAlign:'center',padding:'16px 0'}}>No payments for {dateRange.toLowerCase()}.</div></Card>
           :<Card style={{padding:0,overflow:'hidden'}}>
             <table style={{width:'100%',borderCollapse:'collapse'}}>
               <thead>
@@ -5297,7 +5318,7 @@ function ISUserView({user,onLogout}){
               </tbody>
               <tfoot>
                 <tr style={{borderTop:`2px solid ${B.line}`,background:B.bg}}>
-                  <td colSpan={2} style={{padding:'10px 14px',fontSize:12,fontWeight:700,color:B.ink}}>Total</td>
+                  <td colSpan={2} style={{padding:'10px 14px',fontSize:12,fontWeight:700,color:B.ink}}>{dateRange} Total</td>
                   <td style={{padding:'10px 14px',textAlign:'right',fontSize:14,fontWeight:800,color:B.brand}}>₹{total.toLocaleString('en-IN')}</td>
                 </tr>
               </tfoot>
