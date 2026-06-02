@@ -718,6 +718,7 @@ async function syncFromGoogleSheet({silent=false}={}){
           inactive:dt.inactive||false,
           targetMonth:dt.targetMonth||'',
           target:dt.target||0,
+          lastMonthTarget:dt.lastMonthTarget||0,
         };
       }
     });
@@ -743,6 +744,8 @@ async function syncFromGoogleSheet({silent=false}={}){
         :sheetRM;
       const key=safeKey(`${sheetTL}|${displayRM}`);
       const ex=existingLeads[key]||{};
+      // Snapshot previous target as lastMonthTarget when the stored target belongs to a prior month
+      const lastMonthTarget=(ex.targetMonth&&ex.targetMonth!==curMK)?(ex.target||ex.lastMonthTarget||0):(ex.lastMonthTarget||0);
       // When monthly tab is configured AND has data: RMs not in it are auto-deactivated
       const monthlyTgtVal=hasTabData?(getMonthlyTgt(displayRM,sheetRM)||0):((getMonthlyTgt(displayRM,sheetRM)||parseFloat(r['Target (INR)'])||0)||(ex.target||0));
       const autoDeact=hasTabData&&monthlyTgtVal===0&&!ex.inactive;
@@ -751,7 +754,7 @@ async function syncFromGoogleSheet({silent=false}={}){
       const rmInactive=ex.inactive||autoDeact;
       const rmObj={
         rm:displayRM,tl:sheetTL,city:sheetCity,
-        target:rmTarget,
+        target:rmTarget,lastMonthTarget,
         achieved:paid,
         refund:0,
         inactive:rmInactive,
@@ -774,6 +777,7 @@ async function syncFromGoogleSheet({silent=false}={}){
         dailyAchieved:rmObj.dailyAchv||ex.dailyAchieved||0,
         renewalTarget:rmObj.renewalTgt||ex.renewalTarget||0,
         renewalAchieved:rmObj.renewalAchv||ex.renewalAchieved||0,
+        lastMonthTarget,
         updatedAt:now};
     });
 
@@ -1039,10 +1043,10 @@ function bestFuzzyRM(rmName,tlName){
 function effTgtForRange(r,dateRange){
   if(dateRange==='This Month'){
     const curMK=new Date().toISOString().slice(0,7);
-    // Hide only if targetMonth is explicitly set to a different (past) month
     if(r.targetMonth&&r.targetMonth!==curMK)return 0;
     return r.target||0;
   }
+  if(dateRange==='Last Month')return r.lastMonthTarget||0;
   return r.target||0;
 }
 
@@ -1056,7 +1060,7 @@ function applyStoreToRMs(){
     ALL_RMS.push({
       rm:e.rm,tl:e.tl,city:e.city||'',
       inactive:e.inactive||false,
-      target:e.target||0,targetMonth:e.targetMonth||'',achieved:e.netAchieved||0,refund:e.refund||0,
+      target:e.target||0,targetMonth:e.targetMonth||'',lastMonthTarget:e.lastMonthTarget||0,achieved:e.netAchieved||0,refund:e.refund||0,
       monthlyTgt:e.monthlyLeads||0,monthlyAchv:e.monthlyAchieved||0,
       dailyTgt:e.dailyLeads||0,dailyAchv:e.dailyAchieved||0,
       renewalTgt:e.renewalTarget||0,renewalAchv:e.renewalAchieved||0,
