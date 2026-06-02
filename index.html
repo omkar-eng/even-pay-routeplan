@@ -4174,6 +4174,10 @@ function AdminPanel(){
   const[autoSyncMsg,setAutoSyncMsg]=useState('');
   const[payDiag,setPayDiag]=useState(null);
   const[resetMsg,setResetMsg]=useState('');
+  const[bulkOpen,setBulkOpen]=useState(false);
+  const[bulkText,setBulkText]=useState('');
+  const[bulkRows,setBulkRows]=useState(null);
+  const[bulkSaving,setBulkSaving]=useState('');
   const lastSynced=_cache.sync_settings?.lastSynced
     ?new Date(_cache.sync_settings.lastSynced).toLocaleString('en-IN',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})
     :null;
@@ -4210,6 +4214,48 @@ function AdminPanel(){
     applyStoreToRMs();window.dispatchEvent(new Event('rmDataUpdated'));
     setSaving('✅ Saved to Firebase!');
     setTimeout(()=>setSaving(''),3000);
+  };
+
+  const parseBulk=()=>{
+    const lines=bulkText.trim().split('\n').map(l=>l.trimEnd()).filter(l=>l);
+    const hi=lines.findIndex(l=>/rm.?name/i.test(l)&&/tl/i.test(l));
+    if(hi===-1){setBulkRows([]);return;}
+    const headers=lines[hi].split('\t').map(h=>h.trim().toLowerCase().replace(/[₹()\s]+/g,' ').trim());
+    const ci=name=>headers.findIndex(h=>h.includes(name));
+    const rmC=ci('rm name'),tlC=ci('tl'),cityC=ci('city'),tgtC=ci('target');
+    if(rmC===-1||tlC===-1||tgtC===-1){setBulkRows([]);return;}
+    const rows=[];
+    for(let i=hi+1;i<lines.length;i++){
+      const cols=lines[i].split('\t');
+      const rm=(cols[rmC]||'').trim(),tl=(cols[tlC]||'').trim();
+      const city=cityC>=0?(cols[cityC]||'').trim():'';
+      const target=parseInt((cols[tgtC]||'').replace(/[₹,\s]/g,''))||0;
+      if(!rm||!tl||!target)continue;
+      const key=safeKey(`${tl}|${rm}`);
+      const inSystem=!!ALL_RMS.find(r=>r.rm.toLowerCase()===rm.toLowerCase()&&r.tl.toLowerCase()===tl.toLowerCase());
+      const hasEntry=!!(_cache.targets[key]);
+      rows.push({rm,tl,city,target,key,inSystem,hasEntry});
+    }
+    setBulkRows(rows);
+  };
+
+  const saveBulk=async()=>{
+    if(!bulkRows?.length)return;
+    setBulkSaving('Saving…');
+    const curMK=new Date().toISOString().slice(0,7);
+    await Promise.all(bulkRows.map(row=>{
+      const existing=_cache.targets[row.key]||{};
+      const entry={...existing,tl:row.tl,rm:row.rm,city:row.city||existing.city||'',
+        target:row.target,targetMonth:curMK,
+        updated:new Date().toLocaleString('en-IN'),updatedAt:Date.now()};
+      return db.collection('targets').doc(row.key).set(entry,{merge:true}).then(()=>{_cache.targets[row.key]=entry;});
+    }));
+    applyStoreToRMs();
+    window.dispatchEvent(new Event('rmDataUpdated'));
+    setTargets(loadStore());
+    setBulkSaving(`✅ ${bulkRows.length} targets saved!`);
+    setBulkRows(null);setBulkText('');
+    setTimeout(()=>{setBulkSaving('');setBulkOpen(false);},3000);
   };
 
   // Write one RM's data directly to targets collection
@@ -4516,6 +4562,63 @@ function AdminPanel(){
               <button onClick={saveTargets} style={{padding:'11px 24px',background:B.brand,color:'#fff',border:'none',borderRadius:12,fontSize:14,fontWeight:700,cursor:'pointer'}}>💾 Save to Firebase</button>
               {saving&&<span style={{fontSize:13,color:saving.includes('✅')?B.green:B.muted,fontWeight:600}}>{saving}</span>}
             </div>
+          </>}
+        </Card>}
+
+        {/* ── BULK UPLOAD CARD ── */}
+        {adminTab==='targets'&&<Card style={{marginTop:16}}>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+            <div style={{fontWeight:700,fontSize:15,color:B.ink}}>Bulk Upload Targets from Sheet</div>
+            <button onClick={()=>{setBulkOpen(!bulkOpen);setBulkRows(null);setBulkText('');}}
+              style={{padding:'7px 16px',background:bulkOpen?B.bg:B.brand,color:bulkOpen?B.muted:'#fff',border:`1px solid ${bulkOpen?B.line:B.brand}`,borderRadius:10,fontSize:12,fontWeight:700,cursor:'pointer'}}>
+              {bulkOpen?'Close':'Upload from Sheet'}
+            </button>
+          </div>
+          {bulkOpen&&<>
+            <div style={{fontSize:12,color:B.muted,margin:'10px 0 8px'}}>
+              Select all rows in your Google Sheet (including the header row) and paste below. Needs columns: <strong>RM Name, TL / ATL, City, Target (₹)</strong>
+            </div>
+            <textarea value={bulkText} onChange={e=>{setBulkText(e.target.value);setBulkRows(null);}}
+              placeholder="Paste from Google Sheets here…"
+              style={{width:'100%',height:130,padding:'10px 12px',border:`1.5px solid ${B.line}`,borderRadius:10,fontSize:12,resize:'vertical',boxSizing:'border-box',fontFamily:'monospace',outline:'none'}}
+              onFocus={e=>e.target.style.borderColor=B.brand} onBlur={e=>e.target.style.borderColor=B.line}/>
+            <div style={{display:'flex',gap:8,marginTop:8,alignItems:'center'}}>
+              <button onClick={parseBulk} style={{padding:'9px 20px',background:B.navy,color:'#fff',border:'none',borderRadius:10,fontSize:13,fontWeight:700,cursor:'pointer'}}>Preview</button>
+              {bulkSaving&&<span style={{fontSize:13,color:bulkSaving.includes('✅')?B.green:B.muted,fontWeight:600}}>{bulkSaving}</span>}
+            </div>
+            {bulkRows!==null&&(bulkRows.length===0
+              ?<div style={{marginTop:12,color:B.red,fontSize:13}}>Could not parse. Make sure the header row is included with columns: RM Name, TL / ATL, City, Target (₹).</div>
+              :<>
+                <div style={{overflowX:'auto',marginTop:14}}>
+                  <table style={{width:'100%',borderCollapse:'collapse',fontSize:13}}>
+                    <thead><tr style={{background:B.navy,color:'#fff'}}>
+                      {['RM Name','TL','City','Target (₹)','Status'].map((h,i)=><th key={i} style={{padding:'8px 12px',textAlign:i===3?'right':'left',fontWeight:700}}>{h}</th>)}
+                    </tr></thead>
+                    <tbody>
+                      {bulkRows.map((r,i)=>(
+                        <tr key={i} style={{borderBottom:`1px solid ${B.line}`,background:i%2===0?B.white:B.bg}}>
+                          <td style={{padding:'8px 12px',fontWeight:600}}>{r.rm}</td>
+                          <td style={{padding:'8px 12px',color:B.muted}}>{r.tl}</td>
+                          <td style={{padding:'8px 12px',color:B.muted}}>{r.city}</td>
+                          <td style={{padding:'8px 12px',textAlign:'right',fontWeight:700}}>{Number(r.target).toLocaleString('en-IN')}</td>
+                          <td style={{padding:'8px 12px'}}>
+                            {r.inSystem
+                              ?<span style={{background:B.greenBg,color:B.green,borderRadius:20,padding:'3px 10px',fontSize:11,fontWeight:700}}>{r.hasEntry?'Update':'New'}</span>
+                              :<span style={{background:B.amberBg,color:B.amber,borderRadius:20,padding:'3px 10px',fontSize:11,fontWeight:700}}>Not in system</span>}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <div style={{display:'flex',gap:10,marginTop:12,alignItems:'center',flexWrap:'wrap'}}>
+                  <button onClick={saveBulk} style={{padding:'10px 24px',background:B.green,color:'#fff',border:'none',borderRadius:12,fontSize:14,fontWeight:700,cursor:'pointer'}}>
+                    Save {bulkRows.length} targets to Firebase
+                  </button>
+                  <span style={{fontSize:12,color:B.muted}}>Will be set for {new Date().toLocaleString('en-IN',{month:'long',year:'numeric'})}</span>
+                </div>
+              </>
+            )}
           </>}
         </Card>}
 
