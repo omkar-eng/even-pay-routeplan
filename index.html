@@ -5025,12 +5025,23 @@ function ISPaymentsView(){
   const isMobile=useIsMobile();
   const[cityF,setCityF]=useState('All');
   const[expanded,setExpanded]=useState(null);
+  const[dateRange,setDateRange]=useState('This Month');
 
-  const rows=_cache.payment_rows||[];
+  const allRows=_cache.payment_rows||[];
+
+  // Apply date filter first
+  const rows=(()=>{
+    if(dateRange==='All Time')return allRows;
+    const rng=getDateRangeFromLabel(dateRange);
+    if(!rng)return allRows;
+    const{from,to}=rng;
+    const toEnd=new Date(to.getFullYear(),to.getMonth(),to.getDate(),23,59,59,999);
+    return allRows.filter(r=>{const d=parsePayDate(r.date);return d&&d>=from&&d<=toEnd;});
+  })();
 
   // All cities from RM mapping for IS-associated payments
   const cities=['All',...[...new Set(
-    rows.filter(r=>r.is).map(r=>ALL_RMS.find(rm=>rm.rm.toLowerCase()===r.rm)?.city).filter(Boolean)
+    allRows.filter(r=>r.is).map(r=>ALL_RMS.find(rm=>rm.rm.toLowerCase()===r.rm)?.city).filter(Boolean)
   )].sort()];
 
   // Filter and aggregate by IS
@@ -5068,10 +5079,22 @@ function ISPaymentsView(){
 
       {/* Header */}
       <div style={{background:'linear-gradient(135deg,#1E1B4B,#4338CA)',padding:isMobile?'22px 18px 18px':'20px 24px',borderRadius:isMobile?'0 0 28px 28px':16,marginBottom:16}}>
-        <div style={{color:'rgba(255,255,255,.65)',fontSize:12,marginBottom:4}}>Inside Sales</div>
-        <div style={{color:'#fff',fontSize:22,fontWeight:800}}>IS Payments</div>
-        <div style={{color:'rgba(255,255,255,.7)',fontSize:13,marginTop:4}}>
-          {fmt(grandTotal)} across {isList.length} IS reps · {filtered.length} payments
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:10}}>
+          <div>
+            <div style={{color:'rgba(255,255,255,.65)',fontSize:12,marginBottom:4}}>Inside Sales</div>
+            <div style={{color:'#fff',fontSize:22,fontWeight:800}}>IS Payments</div>
+            <div style={{color:'rgba(255,255,255,.7)',fontSize:13,marginTop:4}}>
+              {fmt(grandTotal)} across {isList.length} IS reps · {filtered.length} payments
+            </div>
+          </div>
+        </div>
+        <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+          {['This Month','Last Month','This Week','All Time'].map(o=>(
+            <button key={o} onClick={()=>setDateRange(o)}
+              style={{padding:'5px 12px',borderRadius:16,border:`1.5px solid ${dateRange===o?'#fff':'rgba(255,255,255,.25)'}`,background:dateRange===o?'rgba(255,255,255,.2)':'transparent',color:dateRange===o?'#fff':'rgba(255,255,255,.55)',fontSize:11,fontWeight:dateRange===o?700:400,cursor:'pointer',whiteSpace:'nowrap'}}>
+              {o}
+            </button>
+          ))}
         </div>
       </div>
 
