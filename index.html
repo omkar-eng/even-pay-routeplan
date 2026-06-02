@@ -1490,7 +1490,7 @@ function RMView({user,onLogout}){
 // ── TL VIEW ────────────────────────────────────────────────────────────────
 function TLView({user,onLogout}){
   const[screen,setScreen]=useState('team');
-  const[dateRange,setDateRange]=useState('All Time');
+  const[dateRange,setDateRange]=useState('This Month');
   const[customFrom,setCustomFrom]=useState('');
   const[customTo,setCustomTo]=useState('');
   const[singleDate,setSingleDate]=useState('');
@@ -2553,7 +2553,7 @@ function _oldRoutePlan_DELETED(){const getEffectiveClinics=(r)=>{
 function AllTeamsPanel(){
   const[expanded,setExpanded]=useState(null);
   const[cityF,setCityF]=useState('All');
-  const[dateRange,setDateRange]=useState('All Time');
+  const[dateRange,setDateRange]=useState('This Month');
   const[customFrom,setCustomFrom]=useState('');
   const[customTo,setCustomTo]=useState('');
   const[singleDate,setSingleDate]=useState('');
@@ -3223,7 +3223,7 @@ function ZoneOverviewPanel(){
   const[tab,setTab]=useState('tl');
   const[filterTL,setFilterTL]=useState('all');
   const[filterCity,setFilterCity]=useState('all');
-  const[dateRange,setDateRange]=useState('All Time');
+  const[dateRange,setDateRange]=useState('This Month');
   const[customFrom,setCustomFrom]=useState('');
   const[customTo,setCustomTo]=useState('');
   const[singleDate,setSingleDate]=useState('');
