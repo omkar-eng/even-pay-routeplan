@@ -705,7 +705,7 @@ async function syncFromGoogleSheet({silent=false}={}){
     // Preserve manually-added RMs (exist in Firestore but not in sheet)
     liveSnap.docs.forEach(d=>{
       const dt=d.data();
-      if(!dt.rm||!dt.tl)return;
+      if(!dt.rm||!dt.tl||!dt.manuallyAdded)return; // only preserve explicit admin-added RMs
       const k=safeKey(`${dt.tl}|${dt.rm}`);
       if(s[k])return; // sheet takes precedence
       s[k]=dt;
@@ -4429,7 +4429,7 @@ function AdminPanel(){
     if(workingRMs.find(r=>r.rm.toLowerCase()===rmName.toLowerCase())){setRmSaving('RM already exists');return;}
     setRmSaving('Saving…');
     try{
-      await saveRMDoc(newRM.tl,rmName,{city:newRM.city,target:0,netAchieved:0,monthlyLeads:0,clinics:[]});
+      await saveRMDoc(newRM.tl,rmName,{city:newRM.city,target:0,netAchieved:0,monthlyLeads:0,clinics:[],manuallyAdded:true});
       const updated=[...workingRMs,{rm:rmName,tl:newRM.tl,city:newRM.city,leads:0,clinics:[],target:0,achieved:0,refund:0,monthlyTgt:0,monthlyAchv:0,dailyTgt:0,dailyAchv:0,renewalTgt:0,renewalAchv:0}];
       setWorkingRMs(updated);
       applyStoreToRMs();window.dispatchEvent(new Event('rmDataUpdated'));
