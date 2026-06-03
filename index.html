@@ -597,8 +597,8 @@ async function syncFromGoogleSheet({silent=false}={}){
     if(jMonthlyTgts?.status==='ok'){
       const tRows=jMonthlyTgts.data?.rows||jMonthlyTgts.data?.targets||(Array.isArray(jMonthlyTgts.data)?jMonthlyTgts.data:[]);
       tRows.forEach(row=>{
-        const actualName=(row['Actual RM Name']||'').toString().trim();
-        const rmName=(row['RM Name']||'').toString().trim();
+        const actualName=(row['Actual RM Name']||row['RM']||'').toString().trim();
+        const rmName=(row['RM Name']||row['RM']||'').toString().trim();
         const rawTgt=row['Target (₹)']??row['Target (INR)']??row['Target']??'';
         const tgt=typeof rawTgt==='number'?rawTgt:parseFloat(rawTgt.toString().replace(/[₹,\s]/g,''))||0;
         if(tgt>0){
@@ -658,8 +658,8 @@ async function syncFromGoogleSheet({silent=false}={}){
     if(jLastMonthTgts?.status==='ok'){
       const tRows=jLastMonthTgts.data?.rows||jLastMonthTgts.data?.targets||(Array.isArray(jLastMonthTgts.data)?jLastMonthTgts.data:[]);
       tRows.forEach(row=>{
-        const actualName=(row['Actual RM Name']||'').toString().trim();
-        const rmName=(row['RM Name']||'').toString().trim();
+        const actualName=(row['Actual RM Name']||row['RM']||'').toString().trim();
+        const rmName=(row['RM Name']||row['RM']||'').toString().trim();
         const rawTgt=row['Target (₹)']??row['Target (INR)']??row['Target']??'';
         const tgt=typeof rawTgt==='number'?rawTgt:parseFloat(rawTgt.toString().replace(/[₹,\s]/g,''))||0;
         if(tgt>0)lastMTgtRows.push({actualName,rmName,tgt});
