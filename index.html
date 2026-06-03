@@ -588,8 +588,8 @@ async function syncFromGoogleSheet({silent=false}={}){
     ]);
     if(jTargets.status!=='ok')throw new Error('targets: '+(jTargets.message||'error'));
     if(jPayments.status!=='ok')throw new Error('payments: '+(jPayments.message||'error'));
-    const rows=jTargets.data.targets||[];
-    const paymentRows=jPayments.data.payments||[];
+    const rows=jTargets.data.rows||jTargets.data.targets||[];
+    const paymentRows=jPayments.data.rows||jPayments.data.payments||[];
     // Build monthly target map from the dedicated targets tab if configured
     const normN=s=>s.toString().toLowerCase().trim().replace(/\s+/g,' ');
     const monthlyTgtMap={};   // normN(name) → target amount
