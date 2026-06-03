@@ -739,7 +739,7 @@ async function syncFromGoogleSheet({silent=false}={}){
     ZONE.tls.splice(0,ZONE.tls.length);
     const tlByName={};
     rows.forEach(r=>{
-      const tl=(r['TL/ATL']||'').trim();const city=(r.City||'').trim();
+      const tl=(r.TL||r['TL/ATL']||'').trim();const city=(r.City||'').trim();
       if(tl&&!tlByName[tl.toLowerCase()]){
         const nt={name:tl,city,rms:0,filledRMs:0,target:0,achieved:0,leads:0,renewals:0,
           monthlyTgt:0,monthlyAchv:0,dailyTgt:0,dailyAchv:0,renewalTgt:0,renewalAchv:0};
@@ -777,7 +777,7 @@ async function syncFromGoogleSheet({silent=false}={}){
     const autoDeactivated=[];
     rows.forEach(r=>{
       const sheetRM=(r.RM||'').trim();
-      const sheetTL=(r['TL/ATL']||'').trim();
+      const sheetTL=(r.TL||r['TL/ATL']||'').trim();
       const sheetCity=(r.City||'').trim();
       if(!sheetRM||!sheetTL)return;
       const sheetRMLo=sheetRM.toLowerCase();
