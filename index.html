@@ -586,6 +586,16 @@ async function syncFromGoogleSheet({silent=false}={}){
       fetch(SHEET_SCRIPT_URL+'?tab='+encodeURIComponent(_tTab)+bust,{cache:'no-store'}).then(r=>r.json()).catch(()=>null),
       fetch(SHEET_SCRIPT_URL+'?tab='+encodeURIComponent(_lmTab)+bust,{cache:'no-store'}).then(r=>r.json()).catch(()=>null),
     ]);
+    // Capture debug info immediately after fetch — before any error checks
+    window._syncDebug={
+      lmTab:_lmTab,
+      lmStatus:jLastMonthTgts?.status||'(no response)',
+      lmMessage:jLastMonthTgts?.message||'',
+      lmRowCount:(jLastMonthTgts?.data?.rows||jLastMonthTgts?.data?.targets||[]).length,
+      lmFirstRow:JSON.stringify((jLastMonthTgts?.data?.rows||jLastMonthTgts?.data?.targets||[])[0]||null),
+      lmMapCount:0,lmMapSample:'(processing not reached)',
+      targetsStatus:jTargets?.status,targetsMsg:jTargets?.message||'',
+    };
     if(jTargets.status!=='ok')throw new Error('targets: '+(jTargets.message||'error'));
     if(jPayments.status!=='ok')throw new Error('payments: '+(jPayments.message||'error'));
     const rows=jTargets.data.rows||jTargets.data.targets||[];
@@ -5147,13 +5157,16 @@ function AdminPanel(){
                 Check Last Month Targets
               </button>
               {lmDiag&&<div style={{marginTop:8,background:'#fff8f0',border:'1.5px solid #e65100',borderRadius:8,padding:'10px 14px',fontSize:12,fontFamily:'monospace'}}>
-                <div><b>Tab fetched:</b> {lmDiag.lmTab}</div>
-                <div><b>Status:</b> {lmDiag.lmStatus} {lmDiag.lmMessage?`— ${lmDiag.lmMessage}`:''}</div>
-                <div><b>Rows returned:</b> {lmDiag.lmRowCount??'(sync not run yet)'}</div>
-                <div><b>Targets matched:</b> {lmDiag.lmMapCount??0}</div>
-                <div style={{marginTop:4}}><b>First raw row:</b> {lmDiag.lmFirstRow||'(none)'}</div>
-                <div style={{marginTop:4}}><b>Sample matches:</b> {lmDiag.lmMapSample||'(none)'}</div>
-                {(lmDiag.lmMapCount===0)&&<div style={{color:'#c62828',marginTop:6,fontFamily:'sans-serif',fontWeight:600}}>No targets loaded — screenshot this box and share it.</div>}
+                {lmDiag.lmTab==='(sync not run yet)'?<div style={{color:'#c62828',fontWeight:700,fontFamily:'sans-serif'}}>Sync has not run yet — click "Pull from Google Sheet" first, then click this button.</div>:<>
+                <div><b>Last-month tab:</b> {lmDiag.lmTab}</div>
+                <div><b>Response status:</b> {lmDiag.lmStatus} {lmDiag.lmMessage?`— ${lmDiag.lmMessage}`:''}</div>
+                <div><b>Rows in response:</b> {lmDiag.lmRowCount}</div>
+                <div><b>Targets matched:</b> {lmDiag.lmMapCount}</div>
+                <div style={{marginTop:4,wordBreak:'break-all'}}><b>First raw row:</b> {lmDiag.lmFirstRow||'null'}</div>
+                <div style={{marginTop:4}}><b>Sample:</b> {lmDiag.lmMapSample}</div>
+                <div style={{marginTop:4}}><b>Targets tab status:</b> {lmDiag.targetsStatus} {lmDiag.targetsMsg}</div>
+                {lmDiag.lmMapCount===0&&<div style={{color:'#c62828',marginTop:6,fontFamily:'sans-serif',fontWeight:600}}>Screenshot this and share — it shows exactly where data is lost.</div>}
+                </>}
               </div>}
             </div>
           </Card>
