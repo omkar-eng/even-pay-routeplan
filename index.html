@@ -1719,7 +1719,7 @@ function TLView({user,onLogout}){
   const[customTo,setCustomTo]=useState('');
   const[singleDate,setSingleDate]=useState('');
   const isMobile=useIsMobile();
-  const myRMs=ALL_RMS.filter(r=>r.tl===user.name&&!r.inactive);
+  const myRMs=ALL_RMS.filter(r=>r.tl===user.name&&(dateRange==='Last Month'?(r.lastMonthTarget>0||!r.inactive):!r.inactive));
   const tgt=myRMs.reduce((s,r)=>s+effTgtForRange(r,dateRange),0);
   const filtData=(()=>{
     if(dateRange==='All Time')return null;
@@ -2928,7 +2928,7 @@ function AllTeamsPanel(){
     const r=getDateRangeFromLabel(dateRange);return r?computeFilteredPayments(r.from,r.to):null;
   })();
   const tls=ZONE.tls.filter(t=>cityF==='All'||t.city===cityF);
-  const totTarget=ALL_RMS.filter(r=>!r.inactive&&(cityF==='All'||r.city===cityF)).reduce((s,r)=>s+effTgtForRange(r,dateRange),0);
+  const totTarget=ALL_RMS.filter(r=>(dateRange==='Last Month'?(r.lastMonthTarget>0||!r.inactive):!r.inactive)&&(cityF==='All'||r.city===cityF)).reduce((s,r)=>s+effTgtForRange(r,dateRange),0);
   const totAchv=filtData?tls.reduce((s,t)=>s+(filtData.tlPayments[t.name.toLowerCase()]||0),0):tls.reduce((s,t)=>s+t.achieved,0);
   const totRMs=tls.reduce((s,t)=>s+t.rms,0);
   const totMthlyTgt=tls.reduce((s,t)=>s+t.monthlyTgt,0);
@@ -3580,7 +3580,7 @@ function ZoneOverviewPanel(){
     if(dateRange==='Custom'){if(!customFrom||!customTo)return null;return computeFilteredPayments(parseDateInput(customFrom),parseDateInput(customTo));}
     const r=getDateRangeFromLabel(dateRange);return r?computeFilteredPayments(r.from,r.to):null;
   })();
-  const effZoneTgt=ALL_RMS.filter(r=>!r.inactive).reduce((s,r)=>s+effTgtForRange(r,dateRange),0);
+  const effZoneTgt=ALL_RMS.filter(r=>dateRange==='Last Month'?(r.lastMonthTarget>0||!r.inactive):!r.inactive).reduce((s,r)=>s+effTgtForRange(r,dateRange),0);
   const actual=ZONE.achieved-ZONE.refund;const zp=pct(actual,effZoneTgt);
   const totalRMs=ZONE.cities.reduce((s,c)=>s+c.rms,0);
   const filledRMs=ZONE.cities.reduce((s,c)=>s+c.filledRMs,0);
