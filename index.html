@@ -653,43 +653,18 @@ async function syncFromGoogleSheet({silent=false}={}){
     };
     if(el&&_tTab){el.textContent=`Monthly targets tab: ${monthlyTgtRows.length} RMs loaded…`;el.style.color='#64748B';}
 
-    // Build last month target map from dedicated tab if configured
-    const lastMTgtRows=[];
-    if(jLastMonthTgts?.status==='ok'){
+    // Build last month target map — simple direct lookup by RM name
+    const lastMTgtMap={};
+    if(_lmTab&&jLastMonthTgts?.status==='ok'){
       const tRows=jLastMonthTgts.data?.rows||jLastMonthTgts.data?.targets||(Array.isArray(jLastMonthTgts.data)?jLastMonthTgts.data:[]);
       tRows.forEach(row=>{
-        const actualName=(row['Actual RM Name']||row['RM']||'').toString().trim();
-        const rmName=(row['RM Name']||row['RM']||'').toString().trim();
+        const nm=normN((row['Actual RM Name']||row['RM Name']||row['RM']||'').toString().trim());
         const rawTgt=row['Target (₹)']??row['Target (INR)']??row['Target']??'';
         const tgt=typeof rawTgt==='number'?rawTgt:parseFloat(rawTgt.toString().replace(/[₹,\s]/g,''))||0;
-        if(tgt>0)lastMTgtRows.push({actualName,rmName,tgt});
+        if(nm&&tgt>0)lastMTgtMap[nm]=tgt;
       });
     }
-    const precomputedLastMTargets={};
-    if(_lmTab&&lastMTgtRows.length>0){
-      const sheetNorms=[...new Set(rows.map(r=>normN((r.RM||'').trim())).filter(Boolean))];
-      const lmCandidates=[];
-      for(const norm of sheetNorms){
-        for(let i=0;i<lastMTgtRows.length;i++){
-          const entry=lastMTgtRows[i];let score=0;
-          for(const cand of[entry.actualName,entry.rmName]){
-            if(!cand)continue;const cn=normN(cand);
-            if(cn===norm){score=1.0;break;}
-            const sc=fuzzyRMScore(norm,cn);if(sc>score)score=sc;
-          }
-          if(score>0.65)lmCandidates.push({norm,entryIdx:i,score});
-        }
-      }
-      lmCandidates.sort((a,b)=>b.score-a.score);
-      const usedRMs=new Set(),usedEntries=new Set();
-      for(const c of lmCandidates){
-        if(usedRMs.has(c.norm)||usedEntries.has(c.entryIdx))continue;
-        usedRMs.add(c.norm);usedEntries.add(c.entryIdx);
-        precomputedLastMTargets[c.norm]=lastMTgtRows[c.entryIdx].tgt;
-      }
-    }
-    const getLastMTgt=(dispRM,shRM)=>(_lmTab&&lastMTgtRows.length>0)
-      ?(precomputedLastMTargets[normN(shRM)]||precomputedLastMTargets[normN(dispRM)]||0):0;
+    const getLastMTgt=(dispRM,shRM)=>lastMTgtMap[normN(shRM)]||lastMTgtMap[normN(dispRM)]||0;
 
     // Build payment totals by RM and by TL (case-insensitive)
     const payByRM={};const payByTL={};
@@ -870,7 +845,7 @@ async function syncFromGoogleSheet({silent=false}={}){
 
     const total=Object.values(payByTL).reduce((s,v)=>s+v,0);
     const datedCount=rawPayRows.filter(r=>r.date).length;
-    if(el){el.textContent=`💾 Saving ${rows.length} RMs · ${datedCount}/${rawPayRows.length} dated payments${_payDateKey?' (col: '+_payDateKey+')':''}…`;el.style.color='#64748B';}
+    if(el){el.textContent=`💾 Saving ${rows.length} RMs · ${datedCount}/${rawPayRows.length} payments · ${Object.keys(lastMTgtMap).length} last-month targets…`;el.style.color='#64748B';}
     const tlAchMap={};
     ZONE.tls.forEach(tl=>{tlAchMap[safeKey(tl.name)]={name:tl.name,city:tl.city,achieved:tl.achieved,target:tl.target};});
     await Promise.all([saveStore(s),db.collection('config').doc('tl_achieved').set(tlAchMap).catch(e=>console.warn('tl_achieved write:',e))]);
@@ -884,7 +859,7 @@ async function syncFromGoogleSheet({silent=false}={}){
       Object.entries(s).forEach(([k,v])=>{if(!v.inactive&&(v.target||0)>0)snap[k]=v.target;});
       _cache.monthly_targets[curMK]=snap;
     }
-    if(_lmTab&&lastMTgtRows.length>0){
+    if(_lmTab&&Object.keys(lastMTgtMap).length>0){
       const lmSnap={};
       Object.entries(s).forEach(([k,v])=>{if((v.lastMonthTarget||0)>0)lmSnap[k]=v.lastMonthTarget;});
       if(Object.keys(lmSnap).length>0)_cache.monthly_targets[lmMK]=lmSnap;
