@@ -481,7 +481,7 @@ function parsePayDate(s){
 let _payDateKey=null; // cached column name, reset on each sync
 function detectPayDateKey(rows){
   if(!rows||!rows.length)return null;
-  const KNOWN=['Date','Payment Date','date','DATE','Pmt Date','PaymentDate','PAYMENT DATE','payment_date','Trans Date','Transaction Date'];
+  const KNOWN=['Date','Payment Date','Date of Payment','date','DATE','Pmt Date','PaymentDate','PAYMENT DATE','payment_date','Trans Date','Transaction Date'];
   const sample=rows.slice(0,10);
   // Check known column names first — use first row to confirm column exists, then scan sample for a parseable date
   for(const k of KNOWN){
@@ -574,13 +574,17 @@ async function syncFromGoogleSheet({silent=false}={}){
   if(el){el.textContent=silent?'Auto-syncing…':'Syncing…';el.style.color='#64748B';}
   try{
     const bust='&_='+Date.now();
-    const _tTab=(_cache.sync_settings?.targetsTab||'').trim();
-    const _lmTab=(_cache.sync_settings?.lastMonthTab||'').trim();
+    const _MONTHS=['January','February','March','April','May','June','July','August','September','October','November','December'];
+    const _nowD=new Date();
+    const _autoTTab=`RM Targets ${_MONTHS[_nowD.getMonth()]}`;
+    const _autoLMTab=`RM Targets ${_MONTHS[_nowD.getMonth()===0?11:_nowD.getMonth()-1]}`;
+    const _tTab=(_cache.sync_settings?.targetsTab||_autoTTab).trim();
+    const _lmTab=(_cache.sync_settings?.lastMonthTab||_autoLMTab).trim();
     const [jTargets,jPayments,jMonthlyTgts,jLastMonthTgts]=await Promise.all([
       fetch(SHEET_SCRIPT_URL+'?tab=targets'+bust,{cache:'no-store'}).then(r=>r.json()),
       fetch(SHEET_SCRIPT_URL+'?tab=payments'+bust,{cache:'no-store'}).then(r=>r.json()),
-      _tTab?fetch(SHEET_SCRIPT_URL+'?tab='+encodeURIComponent(_tTab)+bust,{cache:'no-store'}).then(r=>r.json()).catch(()=>null):Promise.resolve(null),
-      _lmTab?fetch(SHEET_SCRIPT_URL+'?tab='+encodeURIComponent(_lmTab)+bust,{cache:'no-store'}).then(r=>r.json()).catch(()=>null):Promise.resolve(null),
+      fetch(SHEET_SCRIPT_URL+'?tab='+encodeURIComponent(_tTab)+bust,{cache:'no-store'}).then(r=>r.json()).catch(()=>null),
+      fetch(SHEET_SCRIPT_URL+'?tab='+encodeURIComponent(_lmTab)+bust,{cache:'no-store'}).then(r=>r.json()).catch(()=>null),
     ]);
     if(jTargets.status!=='ok')throw new Error('targets: '+(jTargets.message||'error'));
     if(jPayments.status!=='ok')throw new Error('payments: '+(jPayments.message||'error'));
@@ -720,12 +724,12 @@ async function syncFromGoogleSheet({silent=false}={}){
     _payDateKey=detectPayDateKey(paymentRows);
     const rawPayRows=paymentRows.map(p=>({
       date:_payDateKey?String(p[_payDateKey]||'').trim():'',
-      rm:(()=>{const raw=(p['Rm Name']||'').trim().toLowerCase();const matched=rawToTarget[raw];if(matched){const disp=rmDisplayName[matched];return disp?disp.toLowerCase():matched;}return raw;})(),
-      tl:(p['ATL/TL Name']||'').trim().toLowerCase(),
-      is:matchISName(p['IS Name']||''),
-      amount:parseFloat(p.Amount)||0
+      rm:(()=>{const raw=(p['Rm Name']||p['RM Name']||p['rm name']||'').trim().toLowerCase();const matched=rawToTarget[raw];if(matched){const disp=rmDisplayName[matched];return disp?disp.toLowerCase():matched;}return raw;})(),
+      tl:(p['ATL/TL Name']||p['TL Name']||'').trim().toLowerCase(),
+      is:matchISName(p['IS Name']||p['IS']||''),
+      amount:(()=>{const v=String(p.Amount||p['Amount (₹)']||'').replace(/[₹,\s]/g,'');return parseFloat(v)||0;})()
     })).filter(r=>r.amount>0);
-    _cache.payment_rows=rawPayRows;
+    if(rawPayRows.length>0)_cache.payment_rows=rawPayRows;
 
     // Preserve existing clinic data keyed by lowercase RM name
     const savedClinics={};
@@ -5202,10 +5206,10 @@ function AdminPanel(){
               The app will silently fetch fresh data from your sheet every {syncIntervalMin} minute{syncIntervalMin>1?'s':''} while it is open. No page reload — views update automatically.
             </div>}
             <div style={{marginBottom:14}}>
-              <div style={{fontWeight:600,fontSize:13,color:B.navy,marginBottom:6}}>Monthly Targets Tab</div>
-              <div style={{fontSize:12,color:B.muted,marginBottom:8}}>Name of the sheet tab that contains this month's targets. Leave blank to use Target (INR) from the main targets tab. Update each month (e.g. "RM Targets July").</div>
+              <div style={{fontWeight:600,fontSize:13,color:B.navy,marginBottom:6}}>Monthly Targets Tab (optional override)</div>
+              <div style={{fontSize:12,color:B.muted,marginBottom:8}}>Leave blank — the app automatically looks for "RM Targets June", "RM Targets July" etc. based on the current month. Only fill this if your tab uses a different naming format.</div>
               <input value={targetsTab} onChange={e=>setTargetsTab(e.target.value)}
-                placeholder="e.g. RM Targets June"
+                placeholder="Auto: RM Targets [Month] — leave blank"
                 style={{padding:'9px 12px',border:`1.5px solid ${B.line}`,borderRadius:8,fontSize:13,width:'100%',maxWidth:320,outline:'none',boxSizing:'border-box'}}/>
             </div>
             <div style={{marginBottom:14}}>
