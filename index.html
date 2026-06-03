@@ -5153,20 +5153,37 @@ function AdminPanel(){
                 {payDiag.total===0&&<div style={{color:'#c62828',marginTop:4,fontFamily:'sans-serif',fontWeight:600}}>No payment rows loaded — run "Pull from Google Sheet" first.</div>}
                 {payDiag.total>0&&payDiag.dated===0&&<div style={{color:'#e65100',marginTop:4,fontFamily:'sans-serif',fontWeight:600}}>Rows exist but none have dates — date column not matched. Check column name in sheet.</div>}
               </div>}
-              <button onClick={()=>setLmDiag(window._syncDebug||{lmTab:'(sync not run yet)'})} style={{padding:'6px 14px',background:'#fff3e0',color:'#e65100',border:'1.5px solid #e65100',borderRadius:8,fontSize:12,fontWeight:600,cursor:'pointer',marginTop:8}}>
+              <button onClick={()=>{
+                const lmMK=getLastMonthKey();
+                const snap=_cache.monthly_targets?.[lmMK]||{};
+                const sampleRMs=ALL_RMS.slice(0,3).map(r=>`${r.rm}: lmt=₹${r.lastMonthTarget||0} tgt=₹${r.target||0}`);
+                const sampleSnap=Object.entries(snap).slice(0,3).map(([k,v])=>`${k}:₹${v}`).join(' | ')||'(empty)';
+                setLmDiag({
+                  ...(window._syncDebug||{}),
+                  lmMK,
+                  snapCount:Object.keys(snap).length,
+                  snapSample:sampleSnap,
+                  rmCount:ALL_RMS.length,
+                  rmSample:sampleRMs.join(' | '),
+                  rmWithLmt:ALL_RMS.filter(r=>(r.lastMonthTarget||0)>0).length,
+                  monthlyTgtKeys:Object.keys(_cache.monthly_targets||{}).join(', ')||'(none)',
+                });
+              }} style={{padding:'6px 14px',background:'#fff3e0',color:'#e65100',border:'1.5px solid #e65100',borderRadius:8,fontSize:12,fontWeight:600,cursor:'pointer',marginTop:8}}>
                 Check Last Month Targets
               </button>
               {lmDiag&&<div style={{marginTop:8,background:'#fff8f0',border:'1.5px solid #e65100',borderRadius:8,padding:'10px 14px',fontSize:12,fontFamily:'monospace'}}>
-                {lmDiag.lmTab==='(sync not run yet)'?<div style={{color:'#c62828',fontWeight:700,fontFamily:'sans-serif'}}>Sync has not run yet — click "Pull from Google Sheet" first, then click this button.</div>:<>
-                <div><b>Last-month tab:</b> {lmDiag.lmTab}</div>
-                <div><b>Response status:</b> {lmDiag.lmStatus} {lmDiag.lmMessage?`— ${lmDiag.lmMessage}`:''}</div>
-                <div><b>Rows in response:</b> {lmDiag.lmRowCount}</div>
-                <div><b>Targets matched:</b> {lmDiag.lmMapCount}</div>
-                <div style={{marginTop:4,wordBreak:'break-all'}}><b>First raw row:</b> {lmDiag.lmFirstRow||'null'}</div>
-                <div style={{marginTop:4}}><b>Sample:</b> {lmDiag.lmMapSample}</div>
-                <div style={{marginTop:4}}><b>Targets tab status:</b> {lmDiag.targetsStatus} {lmDiag.targetsMsg}</div>
-                {lmDiag.lmMapCount===0&&<div style={{color:'#c62828',marginTop:6,fontFamily:'sans-serif',fontWeight:600}}>Screenshot this and share — it shows exactly where data is lost.</div>}
+                <div style={{fontWeight:700,fontFamily:'sans-serif',marginBottom:6}}>— CURRENT STATE (after page load) —</div>
+                <div><b>monthly_targets keys:</b> {lmDiag.monthlyTgtKeys}</div>
+                <div><b>Snapshot for {lmDiag.lmMK}:</b> {lmDiag.snapCount} entries — {lmDiag.snapSample}</div>
+                <div><b>ALL_RMS count:</b> {lmDiag.rmCount} · <b>with lastMonthTarget&gt;0:</b> {lmDiag.rmWithLmt}</div>
+                <div style={{marginTop:4,wordBreak:'break-all'}}><b>Sample RMs:</b> {lmDiag.rmSample}</div>
+                {window._syncDebug?.lmTab&&<>
+                  <div style={{fontWeight:700,fontFamily:'sans-serif',marginTop:8,marginBottom:4}}>— LAST SYNC DATA —</div>
+                  <div><b>Tab fetched:</b> {lmDiag.lmTab} · <b>Status:</b> {lmDiag.lmStatus}</div>
+                  <div><b>Rows returned:</b> {lmDiag.lmRowCount} · <b>Targets matched:</b> {lmDiag.lmMapCount}</div>
+                  <div style={{wordBreak:'break-all'}}><b>First row:</b> {lmDiag.lmFirstRow}</div>
                 </>}
+                {(lmDiag.snapCount===0||lmDiag.rmWithLmt===0)&&<div style={{color:'#c62828',marginTop:6,fontFamily:'sans-serif',fontWeight:600}}>Screenshot this and share.</div>}
               </div>}
             </div>
           </Card>
