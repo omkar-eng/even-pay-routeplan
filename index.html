@@ -665,6 +665,16 @@ async function syncFromGoogleSheet({silent=false}={}){
       });
     }
     const getLastMTgt=(dispRM,shRM)=>lastMTgtMap[normN(shRM)]||lastMTgtMap[normN(dispRM)]||0;
+    // Capture debug info for admin panel
+    window._syncDebug=window._syncDebug||{};
+    window._syncDebug.lmTab=_lmTab;
+    window._syncDebug.lmStatus=jLastMonthTgts?.status||'(no response)';
+    window._syncDebug.lmMessage=jLastMonthTgts?.message||'';
+    const _lmRawRows=jLastMonthTgts?.data?.rows||jLastMonthTgts?.data?.targets||(Array.isArray(jLastMonthTgts?.data)?jLastMonthTgts.data:[])||[];
+    window._syncDebug.lmRowCount=_lmRawRows.length;
+    window._syncDebug.lmFirstRow=_lmRawRows[0]?JSON.stringify(_lmRawRows[0]):'(no rows)';
+    window._syncDebug.lmMapCount=Object.keys(lastMTgtMap).length;
+    window._syncDebug.lmMapSample=Object.entries(lastMTgtMap).slice(0,5).map(([k,v])=>`${k} → ₹${v}`).join(', ')||'(empty)';
 
     // Build payment totals by RM and by TL (case-insensitive)
     const payByRM={};const payByTL={};
@@ -4369,6 +4379,7 @@ function AdminPanel(){
   const[archiveMsg,setArchiveMsg]=useState('');
   const[autoSyncMsg,setAutoSyncMsg]=useState('');
   const[payDiag,setPayDiag]=useState(null);
+  const[lmDiag,setLmDiag]=useState(null);
   const[resetMsg,setResetMsg]=useState('');
   const[bulkOpen,setBulkOpen]=useState(false);
   const[bulkText,setBulkText]=useState('');
@@ -5131,6 +5142,18 @@ function AdminPanel(){
                 {payDiag.sample.map((s,i)=><div key={i} style={{color:'#333'}}>{s}</div>)}
                 {payDiag.total===0&&<div style={{color:'#c62828',marginTop:4,fontFamily:'sans-serif',fontWeight:600}}>No payment rows loaded — run "Pull from Google Sheet" first.</div>}
                 {payDiag.total>0&&payDiag.dated===0&&<div style={{color:'#e65100',marginTop:4,fontFamily:'sans-serif',fontWeight:600}}>Rows exist but none have dates — date column not matched. Check column name in sheet.</div>}
+              </div>}
+              <button onClick={()=>setLmDiag(window._syncDebug||{lmTab:'(sync not run yet)'})} style={{padding:'6px 14px',background:'#fff3e0',color:'#e65100',border:'1.5px solid #e65100',borderRadius:8,fontSize:12,fontWeight:600,cursor:'pointer',marginTop:8}}>
+                Check Last Month Targets
+              </button>
+              {lmDiag&&<div style={{marginTop:8,background:'#fff8f0',border:'1.5px solid #e65100',borderRadius:8,padding:'10px 14px',fontSize:12,fontFamily:'monospace'}}>
+                <div><b>Tab fetched:</b> {lmDiag.lmTab}</div>
+                <div><b>Status:</b> {lmDiag.lmStatus} {lmDiag.lmMessage?`— ${lmDiag.lmMessage}`:''}</div>
+                <div><b>Rows returned:</b> {lmDiag.lmRowCount??'(sync not run yet)'}</div>
+                <div><b>Targets matched:</b> {lmDiag.lmMapCount??0}</div>
+                <div style={{marginTop:4}}><b>First raw row:</b> {lmDiag.lmFirstRow||'(none)'}</div>
+                <div style={{marginTop:4}}><b>Sample matches:</b> {lmDiag.lmMapSample||'(none)'}</div>
+                {(lmDiag.lmMapCount===0)&&<div style={{color:'#c62828',marginTop:6,fontFamily:'sans-serif',fontWeight:600}}>No targets loaded — screenshot this box and share it.</div>}
               </div>}
             </div>
           </Card>
