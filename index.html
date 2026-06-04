@@ -3951,7 +3951,7 @@ function UsersTab(){
 
   const tls=ZONE.tls.map(t=>t.name);
   const rmNames=ALL_RMS.map(r=>r.rm).sort();
-  const ROLES=[{v:'rm',l:'RM — Relationship Manager'},{v:'tl',l:'TL — Team Leader'},{v:'is',l:'IS — Inside Sales'},{v:'zonal',l:'Zonal Head'},{v:'admin',l:'Admin'}];
+  const ROLES=[{v:'rm',l:'RM — Relationship Manager'},{v:'tl',l:'TL — Team Leader'},{v:'is',l:'IS — Inside Sales'},{v:'is_tl',l:'IS TL — Inside Sales Team Lead'},{v:'zonal',l:'Zonal Head'},{v:'admin',l:'Admin'}];
 
   useEffect(()=>{
     db.collection('users').get()
