@@ -3606,35 +3606,75 @@ function ZoneOverviewPanel(){
     <div style={{background:B.bg,minHeight:'100vh',padding:isMobile?'0 0 80px 0':'20px 24px'}}>
       {isMobile?<>
         {/* Mobile zone overview */}
-        <div style={{background:`linear-gradient(135deg,${B.brandDark},${B.brand})`,padding:'22px 18px 20px'}}>
+        <div style={{background:`linear-gradient(135deg,${B.brandDark},${B.brand})`,padding:'22px 18px 16px'}}>
           <div style={{color:'rgba(255,255,255,.6)',fontSize:11}}>{new Date().toLocaleDateString('en-IN',{weekday:'long',day:'numeric',month:'long'})}</div>
           <div style={{color:'#fff',fontSize:20,fontWeight:800,marginTop:2}}>Zonal Overview</div>
-          <div style={{background:'rgba(255,255,255,.13)',borderRadius:12,padding:'12px',marginTop:12}}>
+          <div style={{display:'flex',gap:6,marginTop:10,overflowX:'auto',paddingBottom:2,msOverflowStyle:'none',scrollbarWidth:'none'}}>
+            {['This Month','Last Month','This Week','All Time'].map(o=>(
+              <button key={o} onClick={()=>setDateRange(o)} style={{padding:'5px 12px',borderRadius:16,border:`1.5px solid ${dateRange===o?'#fff':'rgba(255,255,255,.25)'}`,background:dateRange===o?'rgba(255,255,255,.2)':'transparent',color:dateRange===o?'#fff':'rgba(255,255,255,.55)',fontSize:11,fontWeight:dateRange===o?700:400,cursor:'pointer',whiteSpace:'nowrap',flexShrink:0}}>
+                {o}
+              </button>
+            ))}
+          </div>
+          <div style={{background:'rgba(255,255,255,.13)',borderRadius:12,padding:'12px',marginTop:10}}>
             <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:6}}>
-              <div style={{color:'#fff',fontSize:34,fontWeight:900,lineHeight:1}}>{zp}%</div>
-              <div><div style={{color:'#fff',fontSize:13,fontWeight:700}}>{fmtN(actual)}</div><div style={{color:'rgba(255,255,255,.55)',fontSize:11}}>of {fmtN(effZoneTgt)}</div></div>
+              <div style={{color:'#fff',fontSize:34,fontWeight:900,lineHeight:1}}>{filtZp}%</div>
+              <div>
+                <div style={{color:'#fff',fontSize:13,fontWeight:700}}>{fmtN(filtTotal)}</div>
+                <div style={{color:'rgba(255,255,255,.55)',fontSize:11}}>of {fmtN(effZoneTgt)}</div>
+              </div>
             </div>
             <div style={{background:'rgba(255,255,255,.2)',borderRadius:6,height:8}}>
-              <div style={{width:`${Math.min(zp,100)}%`,height:'100%',background:zp>=90?'#4ADE80':zp>=60?'#FCD34D':'#F87171',borderRadius:6}}/>
+              <div style={{width:`${Math.min(filtZp,100)}%`,height:'100%',background:filtZp>=90?'#4ADE80':filtZp>=60?'#FCD34D':'#F87171',borderRadius:6}}/>
             </div>
+            {filtData&&<div style={{marginTop:6,color:'rgba(255,255,255,.7)',fontSize:10}}>{filtData.rows.length} payments · {dateRange}</div>}
           </div>
           <div style={{display:'flex',gap:8,marginTop:10}}>
             <KTile label="RMs Filled" value={`${filledRMs}/${totalRMs}`}/>
             <KTile label="Leads %" value={leadsPct+'%'} pv={leadsPct}/>
-            <KTile label="Refund" value={fmtN(ZONE.refund)} sub="deducted"/>
+            <KTile label="Refund" value={fmt(ZONE.refund)} sub="deducted"/>
           </div>
         </div>
         <div style={{padding:'14px 16px'}}>
           <STitle>City Performance</STitle>
-          {ZONE.cities.map((c,i)=>{const p=pct(c.achieved,c.target);return <Card key={i} style={{marginBottom:10}}>
-            <div style={{display:'flex',justifyContent:'space-between',marginBottom:8}}><div><div style={{fontWeight:700,fontSize:15}}>{c.name}</div><div style={{color:B.muted,fontSize:11}}>{c.rms} RMs</div></div><PBadge p={p}/></div>
-            <div style={{display:'flex',alignItems:'center',gap:8}}><MBar p={p} h={8}/><div style={{fontSize:11,color:B.muted,whiteSpace:'nowrap'}}>{fmtN(c.achieved)}/{fmtN(c.target)}</div></div>
-          </Card>;})}
+          {ZONE.cities.map((c,i)=>{
+            const cityTLs=ZONE.tls.filter(t=>t.city===c.name);
+            const cityAchv=filtData?cityTLs.reduce((s,t)=>s+(filtData.tlPayments[t.name.toLowerCase()]||0),0):c.achieved;
+            const cityEffTgt=ALL_RMS.filter(r=>(dateRange==='Last Month'?(r.lastMonthTarget>0||!r.inactive):!r.inactive)&&r.city===c.name).reduce((s,r)=>s+effTgtForRange(r,dateRange),0);
+            const p=pct(cityAchv,cityEffTgt);
+            return <Card key={i} style={{marginBottom:10}}>
+              <div style={{display:'flex',justifyContent:'space-between',marginBottom:8}}>
+                <div><div style={{fontWeight:700,fontSize:15}}>{c.name}</div><div style={{color:B.muted,fontSize:11}}>{c.rms} RMs</div></div>
+                <PBadge p={p}/>
+              </div>
+              <div style={{display:'flex',alignItems:'center',gap:8}}>
+                <MBar p={p} h={8}/>
+                <div style={{fontSize:11,color:B.muted,whiteSpace:'nowrap'}}>{fmt(cityAchv)}/{fmt(cityEffTgt)}</div>
+              </div>
+            </Card>;
+          })}
           <STitle mt={16}>TL Performance</STitle>
-          {[...ZONE.tls].sort((a,b)=>pct(b.achieved,b.target)-pct(a.achieved,a.target)).map((t,i)=>{const p=pct(t.achieved,t.target);return <Card key={i} style={{marginBottom:8,borderLeft:`4px solid ${pClr(p)}`}}>
-            <div style={{display:'flex',justifyContent:'space-between',marginBottom:6}}><div><div style={{fontWeight:700,fontSize:13}}>{t.name}</div><div style={{color:B.muted,fontSize:10}}>{t.city} · {t.rms} RMs</div></div><PBadge p={p}/></div>
-            <MBar p={p}/>
-          </Card>;})}
+          {[...ZONE.tls].sort((a,b)=>{
+            const tlEffA=ALL_RMS.filter(r=>(dateRange==='Last Month'?(r.lastMonthTarget>0||!r.inactive):!r.inactive)&&r.tl.toLowerCase()===a.name.toLowerCase()).reduce((s,r)=>s+effTgtForRange(r,dateRange),0);
+            const tlEffB=ALL_RMS.filter(r=>(dateRange==='Last Month'?(r.lastMonthTarget>0||!r.inactive):!r.inactive)&&r.tl.toLowerCase()===b.name.toLowerCase()).reduce((s,r)=>s+effTgtForRange(r,dateRange),0);
+            const pa=pct(filtData?filtData.tlPayments[a.name.toLowerCase()]||0:a.achieved,tlEffA);
+            const pb=pct(filtData?filtData.tlPayments[b.name.toLowerCase()]||0:b.achieved,tlEffB);
+            return pb-pa;
+          }).map((t,i)=>{
+            const tlEffTgt=ALL_RMS.filter(r=>(dateRange==='Last Month'?(r.lastMonthTarget>0||!r.inactive):!r.inactive)&&r.tl.toLowerCase()===t.name.toLowerCase()).reduce((s,r)=>s+effTgtForRange(r,dateRange),0);
+            const tlAchv=filtData?filtData.tlPayments[t.name.toLowerCase()]||0:t.achieved;
+            const p=pct(tlAchv,tlEffTgt);
+            return <Card key={i} style={{marginBottom:8,borderLeft:`4px solid ${pClr(p)}`}}>
+              <div style={{display:'flex',justifyContent:'space-between',marginBottom:4}}>
+                <div><div style={{fontWeight:700,fontSize:13}}>{t.name}</div><div style={{color:B.muted,fontSize:10}}>{t.city} · {t.rms} RMs</div></div>
+                <PBadge p={p}/>
+              </div>
+              <div style={{display:'flex',alignItems:'center',gap:8}}>
+                <MBar p={p}/>
+                <div style={{fontSize:11,color:B.muted,whiteSpace:'nowrap'}}>{fmt(tlAchv)}/{fmt(tlEffTgt)}</div>
+              </div>
+            </Card>;
+          })}
         </div>
       </>:<>
         {/* Desktop zone overview with full tables */}
