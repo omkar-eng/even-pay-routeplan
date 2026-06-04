@@ -1,4 +1,4 @@
-const CACHE = 'even-pay-v1';
+const CACHE = 'even-pay-v2';
 const SHELL = ['/', '/index.html', '/icon.svg', '/manifest.json'];
 
 self.addEventListener('install', e => {
