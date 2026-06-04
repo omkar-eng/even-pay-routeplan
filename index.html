@@ -56,7 +56,7 @@ firebase.initializeApp(firebaseConfig);
 const auth=firebase.auth();
 const db=firebase.firestore();
 
-const ROLE_MAP={'omkar@even.in':{role:'admin',name:'Admin (Omkar)',city:'Pune'}};
+const ROLE_MAP={'omkar@even.in':{role:'admin',name:'Admin (Omkar)',city:'Pune'},'kuldeep.das@even.in':{role:'is_tl',name:'Kuldeep Das'}};
 
 // ── DATA LAYER ─────────────────────────────────────────────────────────────
 let _cache={targets:{},tl_targets:{},admin_state:null,tl_notes:{},route_settings:{},live_leads:{},clinic_statuses:{},route_assignments:{},tl_achieved:{},sync_settings:{},payment_rows:[],monthly_reset:{},monthly_targets:{},route_plan_data:{live_status:[],needs_action:[],new_onboarded:[],disabled:[],lastFetched:null},loaded:false};
@@ -5561,6 +5561,133 @@ function FullAccessView({user,onLogout}){
 }
 
 // ── APP ROOT ───────────────────────────────────────────────────────────────
+// ── IS TL VIEW ─────────────────────────────────────────────────────────────
+function ISTLView({user,onLogout}){
+  const isMobile=useIsMobile();
+  const[dataVer,setDataVer]=useState(0);
+  const[dateRange,setDateRange]=useState('This Month');
+  const[expanded,setExpanded]=useState(null);
+  useEffect(()=>{
+    const h=()=>setDataVer(v=>v+1);
+    window.addEventListener('rmDataUpdated',h);
+    return()=>window.removeEventListener('rmDataUpdated',h);
+  },[]);
+
+  const allRows=_cache.payment_rows||[];
+
+  const filterRows=(rows)=>{
+    if(dateRange==='All Time')return rows;
+    const rng=getDateRangeFromLabel(dateRange);
+    if(!rng)return rows;
+    const{from,to}=rng;
+    const toEnd=new Date(to.getFullYear(),to.getMonth(),to.getDate(),23,59,59,999);
+    return rows.filter(r=>{const d=parsePayDate(r.date);return d&&d>=from&&d<=toEnd;});
+  };
+
+  const filteredRows=filterRows(allRows).filter(r=>r.is);
+  const grandTotal=filteredRows.reduce((s,r)=>s+r.amount,0);
+
+  const byIS={};
+  filteredRows.forEach(r=>{
+    const name=r.is;
+    if(!byIS[name])byIS[name]={name,total:0,rows:[]};
+    byIS[name].total+=r.amount;
+    byIS[name].rows.push(r);
+  });
+  const isList=Object.values(byIS).sort((a,b)=>b.total-a.total);
+
+  const allISNames=[...new Set([...IS_NAMES.map(i=>i.name),...Object.keys(byIS)])].sort();
+  const fmtDate=d=>{const p=parsePayDate(d);return p?p.toLocaleDateString('en-IN',{day:'numeric',month:'short'}):'—';};
+  const dateChips=['This Month','Last Month','This Week','All Time'];
+
+  return(
+    <div style={{background:B.bg,minHeight:'100vh',maxWidth:isMobile?'100%':900,margin:'0 auto',paddingBottom:30}}>
+      <div style={{background:'linear-gradient(135deg,#1E1B4B,#4338CA)',padding:'28px 18px 20px'}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:14}}>
+          <div>
+            <div style={{color:'rgba(255,255,255,.65)',fontSize:12,marginBottom:4}}>Inside Sales — Team Lead</div>
+            <div style={{color:'#fff',fontSize:22,fontWeight:800}}>Kuldeep Das</div>
+            <div style={{color:'rgba(255,255,255,.7)',fontSize:13,marginTop:6}}>
+              ₹{grandTotal.toLocaleString('en-IN')} · {filteredRows.length} payment{filteredRows.length!==1?'s':''} · {isList.length} IS active
+            </div>
+          </div>
+          <button onClick={onLogout} style={{background:'rgba(255,255,255,.15)',border:'none',color:'rgba(255,255,255,.8)',borderRadius:8,padding:'6px 14px',fontSize:12,cursor:'pointer',fontWeight:600}}>Log out</button>
+        </div>
+        <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+          {dateChips.map(c=>(
+            <button key={c} onClick={()=>{setDateRange(c);setExpanded(null);}}
+              style={{padding:'5px 12px',borderRadius:20,border:'none',fontSize:12,fontWeight:600,cursor:'pointer',
+                background:dateRange===c?'rgba(255,255,255,.95)':'rgba(255,255,255,.15)',
+                color:dateRange===c?'#4338CA':'rgba(255,255,255,.85)'}}>
+              {c}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div style={{padding:'16px 14px'}}>
+        {isList.length===0
+          ?<Card><div style={{fontSize:13,color:B.muted,textAlign:'center',padding:'20px 0'}}>No IS payments for {dateRange.toLowerCase()}.</div></Card>
+          :<>
+            {isList.map((is,i)=>{
+              const isOpen=expanded===is.name;
+              const sorted=[...is.rows].sort((a,b)=>(parsePayDate(b.date)||0)-(parsePayDate(a.date)||0));
+              return(
+                <Card key={i} style={{marginBottom:10,padding:0,overflow:'hidden'}}>
+                  <div onClick={()=>setExpanded(isOpen?null:is.name)}
+                    style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'14px 16px',cursor:'pointer'}}>
+                    <div>
+                      <div style={{fontWeight:700,fontSize:14}}>{toTitleCase(is.name)}</div>
+                      <div style={{color:B.muted,fontSize:11,marginTop:2}}>{is.rows.length} payment{is.rows.length!==1?'s':''}</div>
+                    </div>
+                    <div style={{display:'flex',alignItems:'center',gap:10}}>
+                      <div style={{fontWeight:800,fontSize:16,color:B.brand}}>₹{is.total.toLocaleString('en-IN')}</div>
+                      <div style={{color:B.muted,fontSize:12}}>{isOpen?'▲':'▼'}</div>
+                    </div>
+                  </div>
+                  {isOpen&&<div style={{borderTop:`1px solid ${B.line}`}}>
+                    <table style={{width:'100%',borderCollapse:'collapse'}}>
+                      <thead>
+                        <tr style={{background:B.bg}}>
+                          <th style={{padding:'8px 14px',textAlign:'left',fontSize:11,color:B.muted,fontWeight:700,textTransform:'uppercase'}}>Date</th>
+                          <th style={{padding:'8px 14px',textAlign:'left',fontSize:11,color:B.muted,fontWeight:700,textTransform:'uppercase'}}>RM</th>
+                          <th style={{padding:'8px 14px',textAlign:'right',fontSize:11,color:B.muted,fontWeight:700,textTransform:'uppercase'}}>Amount</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {sorted.map((r,j)=>(
+                          <tr key={j} style={{borderTop:`1px solid ${B.line}`}}>
+                            <td style={{padding:'10px 14px',fontSize:12,color:B.ink}}>{fmtDate(r.date)}</td>
+                            <td style={{padding:'10px 14px',fontSize:12,color:B.ink,fontWeight:600}}>{toTitleCase(r.rm)}</td>
+                            <td style={{padding:'10px 14px',textAlign:'right',fontSize:13,fontWeight:700,color:B.brand}}>₹{Number(r.amount).toLocaleString('en-IN')}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      <tfoot>
+                        <tr style={{borderTop:`2px solid ${B.line}`,background:B.bg}}>
+                          <td colSpan={2} style={{padding:'10px 14px',fontSize:12,fontWeight:700,color:B.ink}}>Total</td>
+                          <td style={{padding:'10px 14px',textAlign:'right',fontSize:14,fontWeight:800,color:B.brand}}>₹{is.total.toLocaleString('en-IN')}</td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>}
+                </Card>
+              );
+            })}
+            <Card style={{background:B.brandLight,border:`1px solid ${B.brand}`,marginTop:8}}>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                <div style={{fontWeight:700,fontSize:13,color:B.brand}}>Grand Total — {isList.length} IS</div>
+                <div style={{fontWeight:800,fontSize:18,color:B.brand}}>₹{grandTotal.toLocaleString('en-IN')}</div>
+              </div>
+              <div style={{fontSize:11,color:B.brand,marginTop:2,opacity:.7}}>{filteredRows.length} payments · {dateRange}</div>
+            </Card>
+          </>
+        }
+      </div>
+    </div>
+  );
+}
+
 // ── IS USER VIEW ───────────────────────────────────────────────────────────
 function ISUserView({user,onLogout}){
   const isMobile=useIsMobile();
@@ -5755,7 +5882,7 @@ function App(){
   if(!user)return <Login onLogin={handleLogin}/>;
   if(user.mustChangePassword)return <ForcePasswordChange user={user} onDone={()=>setUser({...user,mustChangePassword:false})}/>;
   const role=user.role;
-  return <>{role==='zonal'||role==='admin'?<FullAccessView user={user} onLogout={handleLogout}/>:role==='tl'?<TLView user={user} onLogout={handleLogout}/>:role==='is'?<ISUserView user={user} onLogout={handleLogout}/>:<RMView user={user} onLogout={handleLogout}/>}<RefreshButton/><InstallBanner/></>;
+  return <>{role==='zonal'||role==='admin'?<FullAccessView user={user} onLogout={handleLogout}/>:role==='is_tl'?<ISTLView user={user} onLogout={handleLogout}/>:role==='tl'?<TLView user={user} onLogout={handleLogout}/>:role==='is'?<ISUserView user={user} onLogout={handleLogout}/>:<RMView user={user} onLogout={handleLogout}/>}<RefreshButton/><InstallBanner/></>;
 }
 
 ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
