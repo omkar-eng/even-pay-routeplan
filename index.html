@@ -5450,14 +5450,18 @@ function AdminPanel(){
               </button>
               <button onClick={async()=>{
                 if(!mbApiKey.trim()){setMbMsg('Enter an API key first.');return;}
-                setMbMsg('Testing connection…');
-                const prev=_cache.metabase_settings;
-                _cache.metabase_settings={apiKey:mbApiKey.trim(),dashboardId:Number(mbDashId)||529};
-                const rows=await fetchMetabaseLeads();
-                _cache.metabase_settings=prev;
-                if(rows===null)setMbMsg('❌ Connection failed — check the API key or CORS settings on Metabase.');
-                else if(rows.length===0)setMbMsg('⚠️ Connected but no rows returned. Check the dashboard has data.');
-                else setMbMsg(`✅ Connected — ${rows.length} rows found.`);
+                if(!mbProxyUrl.trim()){setMbMsg('Enter the proxy script URL first.');return;}
+                setMbMsg('Testing…');
+                try{
+                  const url=`${mbProxyUrl.trim()}?tab=metabase&apiKey=${encodeURIComponent(mbApiKey.trim())}&dashId=${Number(mbDashId)||529}&_=${Date.now()}`;
+                  const result=await fetch(url,{cache:'no-store'}).then(r=>r.json());
+                  if(result?.status==='ok'){
+                    const rows=result.data?.rows||[];
+                    setMbMsg(rows.length>0?`✅ Connected — ${rows.length} rows found.`:'⚠️ Connected but 0 rows returned.');
+                  }else{
+                    setMbMsg(`❌ ${result?.message||JSON.stringify(result).slice(0,120)}`);
+                  }
+                }catch(e){setMbMsg(`❌ ${e.message}`);}
               }} style={{padding:'9px 18px',background:B.bg,color:B.navy,border:`1.5px solid ${B.line}`,borderRadius:10,fontSize:13,fontWeight:700,cursor:'pointer'}}>
                 Test
               </button>
