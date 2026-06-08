@@ -573,12 +573,12 @@ function buildRMPayments(payByRM, targetRMNames){
 
 async function fetchMetabaseLeads(){
   const cfg=_cache.metabase_settings||{};
-  if(!cfg.apiKey)return null;
+  if(!cfg.apiKey||!cfg.proxyUrl)return null;
   const dashId=cfg.dashboardId||529;
   const bust='&_='+Date.now();
   try{
     const result=await fetch(
-      `${SHEET_SCRIPT_URL}?tab=metabase&apiKey=${encodeURIComponent(cfg.apiKey)}&dashId=${dashId}${bust}`,
+      `${cfg.proxyUrl}?tab=metabase&apiKey=${encodeURIComponent(cfg.apiKey)}&dashId=${dashId}${bust}`,
       {cache:'no-store'}
     ).then(r=>r.json());
     if(result?.status==='ok')return result.data?.rows||[];
@@ -4528,6 +4528,7 @@ function AdminPanel(){
   const[resetMsg,setResetMsg]=useState('');
   const[mbApiKey,setMbApiKey]=useState(_cache.metabase_settings?.apiKey||'');
   const[mbDashId,setMbDashId]=useState(String(_cache.metabase_settings?.dashboardId||529));
+  const[mbProxyUrl,setMbProxyUrl]=useState(_cache.metabase_settings?.proxyUrl||'');
   const[mbMsg,setMbMsg]=useState('');
   const[bulkOpen,setBulkOpen]=useState(false);
   const[bulkText,setBulkText]=useState('');
@@ -5420,18 +5421,26 @@ function AdminPanel(){
                 placeholder="Paste your Metabase API key here"
                 style={{width:'100%',padding:'9px 12px',border:`1.5px solid ${B.line}`,borderRadius:8,fontSize:13,outline:'none',boxSizing:'border-box',fontFamily:'monospace'}}/>
             </div>
-            <div style={{marginBottom:14}}>
+            <div style={{marginBottom:12}}>
               <div style={{fontWeight:600,fontSize:12,color:B.navy,marginBottom:5}}>Dashboard ID</div>
               <input type="text" value={mbDashId} onChange={e=>setMbDashId(e.target.value)}
                 placeholder="529"
                 style={{width:120,padding:'9px 12px',border:`1.5px solid ${B.line}`,borderRadius:8,fontSize:13,outline:'none'}}/>
               <div style={{fontSize:11,color:B.muted,marginTop:4}}>From the Metabase dashboard URL — e.g. /dashboard/<strong>529</strong>-field-ops</div>
             </div>
+            <div style={{marginBottom:14}}>
+              <div style={{fontWeight:600,fontSize:12,color:B.navy,marginBottom:5}}>Proxy Script URL</div>
+              <input type="text" value={mbProxyUrl} onChange={e=>setMbProxyUrl(e.target.value)}
+                placeholder="https://script.google.com/macros/s/.../exec"
+                style={{width:'100%',padding:'9px 12px',border:`1.5px solid ${B.line}`,borderRadius:8,fontSize:13,outline:'none',boxSizing:'border-box'}}/>
+              <div style={{fontSize:11,color:B.muted,marginTop:4}}>The deployed URL of the Apps Script that has the <code>proxyMetabase_</code> function.</div>
+            </div>
             <div style={{display:'flex',gap:10,alignItems:'center',flexWrap:'wrap'}}>
               <button onClick={async()=>{
                 if(!mbApiKey.trim()){setMbMsg('Enter an API key first.');return;}
+                if(!mbProxyUrl.trim()){setMbMsg('Enter the proxy script URL first.');return;}
                 setMbMsg('Saving…');
-                const s={apiKey:mbApiKey.trim(),dashboardId:Number(mbDashId)||529};
+                const s={apiKey:mbApiKey.trim(),dashboardId:Number(mbDashId)||529,proxyUrl:mbProxyUrl.trim()};
                 _cache.metabase_settings=s;
                 await db.collection('config').doc('metabase_settings').set(s).catch(()=>{});
                 setMbMsg('✅ Saved. Will take effect on next sync.');
