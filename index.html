@@ -574,38 +574,18 @@ function buildRMPayments(payByRM, targetRMNames){
 async function fetchMetabaseLeads(){
   const cfg=_cache.metabase_settings||{};
   if(!cfg.apiKey)return null;
-  const BASE='https://metabase.0e1.io';
   const dashId=cfg.dashboardId||529;
-  const h={'X-API-KEY':cfg.apiKey,'Content-Type':'application/json'};
+  const bust='&_='+Date.now();
   try{
-    const dash=await fetch(`${BASE}/api/dashboard/${dashId}`,{headers:h}).then(r=>r.json());
-    if(dash.error||dash['error-code'])throw new Error(dash.error||'Auth failed');
-    const dashcards=dash.dashcards||dash.ordered_cards||[];
-    const TARGET_COLS=['RM','Clinic','Status','CAM','City','Avg leads/day','GL%','Trend','Weeks','Total leads'];
-    for(const dc of dashcards){
-      const cardId=dc.card_id||(dc.card?.id);
-      if(!cardId)continue;
-      try{
-        const result=await fetch(`${BASE}/api/card/${cardId}/query`,{
-          method:'POST',headers:h,
-          body:JSON.stringify({parameters:[]})
-        }).then(r=>r.json());
-        const cols=(result.data?.cols||[]).map(c=>(c.display_name||c.name||'').trim());
-        const hasRM=cols.some(c=>c==='RM');
-        const hasClinic=cols.some(c=>c==='Clinic');
-        if(!hasRM||!hasClinic)continue;
-        const rows=(result.data?.rows||[]).map(row=>{
-          const obj={};
-          cols.forEach((c,i)=>{obj[c]=row[i]??'';});
-          return obj;
-        });
-        return rows;
-      }catch(ce){}
-    }
+    const result=await fetch(
+      `${SHEET_SCRIPT_URL}?tab=metabase&apiKey=${encodeURIComponent(cfg.apiKey)}&dashId=${dashId}${bust}`,
+      {cache:'no-store'}
+    ).then(r=>r.json());
+    if(result?.status==='ok')return result.data?.rows||[];
+    if(result?.status==='error')console.warn('Metabase proxy error:',result.message);
     return null;
   }catch(e){
     console.warn('Metabase fetch failed:',e.message);
-    _cache.metabase_settings={...(cfg),lastError:e.message};
     return null;
   }
 }

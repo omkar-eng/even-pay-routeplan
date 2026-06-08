@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git commit -m ' *)",
+      "WebFetch(domain:script.google.com)",
+      "WebFetch(domain:script.googleusercontent.com)",
+      "Bash(git commit *)",
+      "Bash(git checkout *)",
+      "Bash(powershell -command \"\\(Get-Item 'c:/Users/omkar_even/OneDrive/Documents/even-pay-routeplan/index.html'\\).LastWriteTime\")",
+      "Bash(start \"c:/Users/omkar_even/OneDrive/Documents/even-pay-routeplan/index.html\")",
+      "mcp__claude_ai_Google_Drive__read_file_content",
+      "WebFetch(domain:docs.google.com)",
+      "Bash(powershell -Command \"\\(Get-Content index.html -Raw\\).Length\")"
+    ]
+  }
+}
