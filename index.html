@@ -1002,31 +1002,28 @@ function mergePendingIntoPaymentRows(){
 
 async function submitPaymentEntry({rm,tl,city,date,amount,is:isName=''}){
   const row={date:formatSheetDate(date),rm:rm.toLowerCase(),tl:tl.toLowerCase(),rmDisplay:rm,tlDisplay:tl,is:matchISName(isName),city,amount,_pid:Date.now(),pending:true};
-  // 1. Save to local pending + Firestore immediately so it shows in app
+  // 1. Save to local pending + Firestore immediately — this is the source of truth
   _pendingPayments=[..._pendingPayments,row];
   _cache.payment_rows=[...(_cache.payment_rows||[]),row];
   await savePendingToFirestore();
   window.dispatchEvent(new Event('rmDataUpdated'));
-  // 2. Try writing to sheet via GAS
-  try{
-    const resp=await fetch(SHEET_SCRIPT_URL,{
-      method:'POST',
-      headers:{'Content-Type':'text/plain'},
-      body:JSON.stringify({action:'addPayment',date:row.date,tl:toTitleCase(row.tlDisplay),rm:toTitleCase(row.rmDisplay),city:toTitleCase(row.city),is:toTitleCase(isName),amount})
-    });
-    const j=await resp.json().catch(()=>({}));
-    if(j.status==='ok'){
-      // 3. Re-sync from sheet to get the authoritative data including the new row
-      _pendingPayments=_pendingPayments.filter(r=>r._pid!==row._pid);
-      await savePendingToFirestore();
-      await syncFromGoogleSheet({silent:true});
-      return{ok:true,sheetOk:true};
-    } else {
-      return{ok:true,sheetOk:false,msg:j.message||'GAS write returned error'};
-    }
-  }catch(e){
-    return{ok:true,sheetOk:false,msg:e.message};
-  }
+  // 2. Write to sheet in background — do not block the UI on this
+  (async()=>{
+    try{
+      const resp=await fetch(SHEET_SCRIPT_URL,{
+        method:'POST',
+        headers:{'Content-Type':'text/plain'},
+        body:JSON.stringify({action:'addPayment',date:row.date,tl:toTitleCase(row.tlDisplay),rm:toTitleCase(row.rmDisplay),city:toTitleCase(row.city),is:toTitleCase(isName),amount})
+      });
+      const j=await resp.json().catch(()=>({}));
+      if(j.status==='ok'){
+        _pendingPayments=_pendingPayments.filter(r=>r._pid!==row._pid);
+        await savePendingToFirestore();
+        syncFromGoogleSheet({silent:true});
+      }
+    }catch(e){console.warn('Sheet write failed — will retry on next sync:',e);}
+  })();
+  return{ok:true};
 }
 
 // ── RESPONSIVE HOOK ────────────────────────────────────────────────────────
@@ -3317,8 +3314,8 @@ function AddPaymentModal({onClose}){
     const res=await submitPaymentEntry({rm:rmName,tl:tlName,city,date,amount:parseFloat(amount),is:isName.trim()});
     setBusy(false);
     if(res.ok){
-      setStatus(res);
-      if(res.sheetOk){setTimeout(onClose,1400);}
+      setStatus({saved:true});
+      setTimeout(onClose,900);
     } else {
       setErr('Failed to save. Please try again.');
     }
@@ -3335,10 +3332,8 @@ function AddPaymentModal({onClose}){
       </div>
 
       {status&&(
-        <div style={{background:status.sheetOk?B.greenBg:B.amberBg,border:`1px solid ${status.sheetOk?B.green:B.amber}`,borderRadius:10,padding:'10px 14px',marginBottom:16,fontSize:12,fontWeight:600,color:status.sheetOk?B.green:B.amber}}>
-          {status.sheetOk
-            ?'Payment added and synced to sheet.'
-            :'Payment saved locally. To sync to sheet, add the doPost handler to your GAS script (see Admin → Payments tab).'}
+        <div style={{background:B.greenBg,border:`1px solid ${B.green}`,borderRadius:10,padding:'10px 14px',marginBottom:16,fontSize:12,fontWeight:600,color:B.green}}>
+          Payment saved successfully.
         </div>
       )}
 
