@@ -59,8 +59,9 @@ const db=firebase.firestore();
 const ROLE_MAP={'omkar@even.in':{role:'admin',name:'Admin (Omkar)',city:'Pune'},'kuldeep.das@even.in':{role:'is_tl',name:'Kuldeep Das'}};
 
 // ── DATA LAYER ─────────────────────────────────────────────────────────────
-let _cache={targets:{},tl_targets:{},admin_state:null,tl_notes:{},route_settings:{},live_leads:{},clinic_statuses:{},route_assignments:{},tl_achieved:{},sync_settings:{},payment_rows:[],monthly_reset:{},monthly_targets:{},route_plan_data:{live_status:[],needs_action:[],new_onboarded:[],disabled:[],lastFetched:null},loaded:false};
+let _cache={targets:{},tl_targets:{},admin_state:null,tl_notes:{},route_settings:{},live_leads:{},clinic_statuses:{},route_assignments:{},tl_achieved:{},sync_settings:{},payment_rows:[],monthly_reset:{},monthly_targets:{},leads_data:[],route_plan_data:{live_status:[],needs_action:[],new_onboarded:[],disabled:[],lastFetched:null},loaded:false};
 let _autoSyncTimer=null;
+let _LEADS_BY_RM={};
 const safeKey=k=>k.replace(/[^a-zA-Z0-9_-]/g,'_');
 const clinicKey=(rm,clinic)=>safeKey(`${rm}__${clinic}`);
 
@@ -569,6 +570,32 @@ function buildRMPayments(payByRM, targetRMNames){
   return{rmPayments,rmDisplayName};
 }
 
+function buildLeadsMap(rows){
+  const nrm=s=>(s||'').toString().toLowerCase().trim().replace(/\s+/g,' ');
+  _LEADS_BY_RM={};
+  rows.forEach(row=>{
+    const rmN=nrm(row['RM']||'');
+    if(!rmN)return;
+    if(!_LEADS_BY_RM[rmN]){_LEADS_BY_RM[rmN]={rm:row['RM'],city:row['City']||'',totalLeads:0,avgPerDay:0,glPct:0,trend:'',clinics:[]};}
+    const e=_LEADS_BY_RM[rmN];
+    const tl=parseFloat(row['Total leads'])||0;
+    const apd=parseFloat(row['Avg leads/day'])||0;
+    const gl=parseFloat((row['GL%']||'0').toString().replace('%',''))||0;
+    e.totalLeads+=tl;
+    e.clinics.push({clinic:row['Clinic']||'',status:row['Status']||'',cam:row['CAM']||'',avgPerDay:apd,glPct:gl,trend:row['Trend']||'',weeks:parseFloat(row['Weeks'])||0,totalLeads:tl,city:row['City']||''});
+  });
+  Object.values(_LEADS_BY_RM).forEach(e=>{
+    const tot=e.totalLeads;
+    if(tot>0){
+      e.avgPerDay=e.clinics.reduce((s,c)=>s+c.avgPerDay*(c.totalLeads||1),0)/e.clinics.reduce((s,c)=>s+(c.totalLeads||1),0);
+      e.glPct=e.clinics.reduce((s,c)=>s+c.glPct*(c.totalLeads||1),0)/e.clinics.reduce((s,c)=>s+(c.totalLeads||1),0);
+    }
+    const ts=e.clinics.map(c=>c.trend.toLowerCase());
+    const up=ts.filter(t=>t.includes('up')).length,dn=ts.filter(t=>t.includes('down')).length;
+    e.trend=up>dn?'Up':dn>up?'Down':'Stable';
+  });
+}
+
 async function syncFromGoogleSheet({silent=false}={}){
   const el=document.getElementById('sheetSyncStatus');
   if(el){el.textContent=silent?'Auto-syncing…':'Syncing…';el.style.color='#64748B';}
@@ -580,11 +607,12 @@ async function syncFromGoogleSheet({silent=false}={}){
     const _autoLMTab=`RM Targets ${_MONTHS[_nowD.getMonth()===0?11:_nowD.getMonth()-1]}`;
     const _tTab=(_cache.sync_settings?.targetsTab||_autoTTab).trim();
     const _lmTab=(_cache.sync_settings?.lastMonthTab||_autoLMTab).trim();
-    const [jTargets,jPayments,jMonthlyTgts,jLastMonthTgts]=await Promise.all([
+    const [jTargets,jPayments,jMonthlyTgts,jLastMonthTgts,jLeads]=await Promise.all([
       fetch(SHEET_SCRIPT_URL+'?tab=targets'+bust,{cache:'no-store'}).then(r=>r.json()),
       fetch(SHEET_SCRIPT_URL+'?tab=payments'+bust,{cache:'no-store'}).then(r=>r.json()),
       fetch(SHEET_SCRIPT_URL+'?tab='+encodeURIComponent(_tTab)+bust,{cache:'no-store'}).then(r=>r.json()).catch(()=>null),
       fetch(SHEET_SCRIPT_URL+'?tab='+encodeURIComponent(_lmTab)+bust,{cache:'no-store'}).then(r=>r.json()).catch(()=>null),
+      fetch(SHEET_SCRIPT_URL+'?tab=leads'+bust,{cache:'no-store'}).then(r=>r.json()).catch(()=>null),
     ]);
     // Capture debug info immediately after fetch — before any error checks
     window._syncDebug={
@@ -892,6 +920,7 @@ async function syncFromGoogleSheet({silent=false}={}){
       db.collection('config').doc('monthly_targets').set(_cache.monthly_targets).catch(()=>{}),
     ]);
     mergePendingIntoPaymentRows();
+    if(jLeads?.status==='ok'){const lr=jLeads.data?.rows||[];_cache.leads_data=lr;buildLeadsMap(lr);}
     if(silent){
       applyStoreToRMs();
       window.dispatchEvent(new Event('rmDataUpdated'));
@@ -1576,7 +1605,7 @@ function RMView({user,onLogout}){
 
       {/* Tab nav */}
       <div style={{background:B.white,display:'flex',borderBottom:`1px solid ${B.line}`,padding:'0 8px'}}>
-        {[['targets','My Targets'],['payments','Payments'],['chart','Chart'],['route','Route Plan']].map(([id,lbl])=>(
+        {[['targets','My Targets'],['payments','Payments'],['leads','Leads'],['chart','Chart'],['route','Route Plan']].map(([id,lbl])=>(
           <button key={id} onClick={()=>setTab(id)} style={{flex:1,padding:'12px 4px',background:'none',border:'none',borderBottom:tab===id?`3px solid ${B.brand}`:'3px solid transparent',color:tab===id?B.brand:B.muted,fontWeight:tab===id?700:500,fontSize:13,cursor:'pointer',whiteSpace:'nowrap'}}>
             {lbl}
           </button>
@@ -1702,6 +1731,53 @@ function RMView({user,onLogout}){
             </Card>
           ))}
         </>}
+        {tab==='leads'&&(()=>{
+          const nrm=s=>(s||'').toString().toLowerCase().trim().replace(/\s+/g,' ');
+          const ld=_LEADS_BY_RM[nrm(rm.rm)]||null;
+          const trendClr=t=>t==='Up'?B.green:t==='Down'?B.red:B.amber;
+          const trendIcon=t=>t==='Up'?'↑':t==='Down'?'↓':'→';
+          if(!ld)return(
+            <div style={{textAlign:'center',padding:'40px 16px',color:B.muted}}>
+              <div style={{fontSize:36,marginBottom:12}}>📋</div>
+              <div style={{fontWeight:700,fontSize:15,color:B.ink,marginBottom:6}}>No lead data loaded</div>
+              <div style={{fontSize:13}}>Lead data will appear here after the next sync.</div>
+            </div>
+          );
+          return(<>
+            <div style={{display:'flex',gap:8,marginBottom:16}}>
+              {[['Total Leads',String(ld.totalLeads),'📋'],[`Avg/Day`,ld.avgPerDay.toFixed(1),'📅'],['GL%',ld.glPct.toFixed(0)+'%','✅'],['Trend',trendIcon(ld.trend),trendClr(ld.trend)]].map(([l,v,ic])=>(
+                <div key={l} style={{flex:1,background:B.white,borderRadius:12,padding:'10px 6px',textAlign:'center',boxShadow:'0 1px 6px rgba(0,0,0,.06)'}}>
+                  <div style={{fontSize:14,color:typeof ic==='string'&&ic.startsWith('#')?ic:B.ink}}>{typeof ic==='string'&&ic.startsWith('#')?v:ic}</div>
+                  <div style={{fontWeight:800,fontSize:15,color:typeof ic==='string'&&ic.startsWith('#')?ic:B.ink,marginTop:2}}>{typeof ic==='string'&&ic.startsWith('#')?'':v}</div>
+                  <div style={{fontSize:9,color:B.muted,marginTop:2}}>{l}</div>
+                </div>
+              ))}
+            </div>
+            <div style={{fontSize:10,fontWeight:700,color:B.muted,textTransform:'uppercase',letterSpacing:'.6px',marginBottom:10}}>{ld.clinics.length} Clinic{ld.clinics.length!==1?'s':''}</div>
+            {[...ld.clinics].sort((a,b)=>b.totalLeads-a.totalLeads).map((c,i)=>(
+              <Card key={i} style={{marginBottom:10}}>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:10}}>
+                  <div style={{flex:1}}>
+                    <div style={{fontWeight:700,fontSize:14,color:B.ink}}>{c.clinic}</div>
+                    {c.cam&&<div style={{fontSize:11,color:B.muted,marginTop:1}}>CAM: {c.cam}</div>}
+                  </div>
+                  <div style={{display:'flex',gap:6,alignItems:'center',flexShrink:0}}>
+                    {c.status&&<span style={{background:c.status.toLowerCase()==='active'?B.greenBg:B.bg,color:c.status.toLowerCase()==='active'?B.green:B.muted,padding:'3px 8px',borderRadius:10,fontSize:10,fontWeight:700}}>{c.status}</span>}
+                    <span style={{color:trendClr(c.trend),fontWeight:800,fontSize:16}}>{trendIcon(c.trend)}</span>
+                  </div>
+                </div>
+                <div style={{display:'flex',gap:6}}>
+                  {[['Total',c.totalLeads],['Avg/Day',c.avgPerDay.toFixed(1)],['GL%',c.glPct.toFixed(0)+'%'],['Weeks',c.weeks]].map(([l,v])=>(
+                    <div key={l} style={{flex:1,background:B.bg,borderRadius:8,padding:'7px 4px',textAlign:'center'}}>
+                      <div style={{fontWeight:700,fontSize:13,color:B.ink}}>{v}</div>
+                      <div style={{fontSize:9,color:B.muted,marginTop:2}}>{l}</div>
+                    </div>
+                  ))}
+                </div>
+              </Card>
+            ))}
+          </>);
+        })()}
         {tab==='route'&&<div style={{margin:'0 -16px -20px'}}><RoutePlanPanel user={user}/></div>}
       </div>
     </div>
