@@ -1571,9 +1571,9 @@ function RMView({user,onLogout}){
           </div>
         </div>
         <div style={{display:'flex',gap:8}}>
-          <KTile label="Achieved" value={fmt(rm.achieved)}/>
+          <KTile label="Achieved" value={fmtN(rm.achieved)}/>
           <KTile label="Clinics" value={routeClinicCount}/>
-          <KTile label="Target" value={fmt(rm.target)}/>
+          <KTile label="Target" value={fmtN(rm.target)}/>
         </div>
       </div>
 
@@ -1751,11 +1751,11 @@ function TLView({user,onLogout}){
           <div style={{display:'flex',gap:8,marginTop:16}}>
             <div style={{flex:1,background:'rgba(255,255,255,.1)',borderRadius:14,padding:'12px 10px',textAlign:'center'}}>
               <div style={{color:'rgba(255,255,255,.6)',fontSize:9,fontWeight:700,letterSpacing:'.6px',textTransform:'uppercase',marginBottom:5}}>Target</div>
-              <div style={{color:'#fff',fontSize:14,fontWeight:800}}>{fmt(tgt)}</div>
+              <div style={{color:'#fff',fontSize:14,fontWeight:800}}>{fmtN(tgt)}</div>
             </div>
             <div style={{flex:1,background:'rgba(255,255,255,.22)',borderRadius:14,padding:'12px 10px',textAlign:'center',border:'1px solid rgba(255,255,255,.3)'}}>
               <div style={{color:'rgba(255,255,255,.75)',fontSize:9,fontWeight:700,letterSpacing:'.6px',textTransform:'uppercase',marginBottom:5}}>Achieved</div>
-              <div style={{color:'#fff',fontSize:14,fontWeight:800}}>{fmt(ach)}</div>
+              <div style={{color:'#fff',fontSize:14,fontWeight:800}}>{fmtN(ach)}</div>
               <div style={{color:'rgba(255,255,255,.65)',fontSize:10,marginTop:3}}>{pct(ach,tgt)}%</div>
             </div>
             <div style={{flex:1,background:'rgba(255,255,255,.1)',borderRadius:14,padding:'12px 10px',textAlign:'center'}}>
@@ -2950,11 +2950,11 @@ function AllTeamsPanel(){
         <div style={{display:'flex',gap:8,marginTop:14}}>
           <div style={{flex:1,background:'rgba(255,255,255,.1)',borderRadius:14,padding:'11px 10px',textAlign:'center'}}>
             <div style={{color:'rgba(255,255,255,.6)',fontSize:9,fontWeight:700,letterSpacing:'.6px',textTransform:'uppercase',marginBottom:5}}>Zone Target</div>
-            <div style={{color:'#fff',fontSize:14,fontWeight:800}}>{fmt(totTarget)}</div>
+            <div style={{color:'#fff',fontSize:14,fontWeight:800}}>{fmtN(totTarget)}</div>
           </div>
           <div style={{flex:1,background:'rgba(255,255,255,.22)',borderRadius:14,padding:'11px 10px',textAlign:'center',border:'1px solid rgba(255,255,255,.3)'}}>
             <div style={{color:'rgba(255,255,255,.75)',fontSize:9,fontWeight:700,letterSpacing:'.6px',textTransform:'uppercase',marginBottom:5}}>Achieved</div>
-            <div style={{color:'#fff',fontSize:14,fontWeight:800}}>{fmt(totAchv)}</div>
+            <div style={{color:'#fff',fontSize:14,fontWeight:800}}>{fmtN(totAchv)}</div>
             <div style={{color:'rgba(255,255,255,.65)',fontSize:10,marginTop:3}}>{pct(totAchv,totTarget)}%</div>
           </div>
           <div style={{flex:1,background:'rgba(255,255,255,.1)',borderRadius:14,padding:'11px 10px',textAlign:'center'}}>
@@ -5859,6 +5859,7 @@ function App(){
       if(fu){
         setInitMsg('Loading your data…');
         await initFirestore();
+        syncFromGoogleSheet({silent:true}); // auto-refresh on every app open
         const doc=await db.collection('users').doc(fu.uid).get();
         if(doc.exists){setUser({...doc.data(),uid:fu.uid});}
         else{
@@ -5871,7 +5872,7 @@ function App(){
     });
     return()=>unsub();
   },[]);
-  const handleLogin=async(u)=>{setInitMsg('Loading your data…');setLoading(true);await initFirestore();setUser(u);setLoading(false);};
+  const handleLogin=async(u)=>{setInitMsg('Loading your data…');setLoading(true);await initFirestore();syncFromGoogleSheet({silent:true});setUser(u);setLoading(false);};
   const handleLogout=async()=>{
     if(_autoSyncTimer){clearInterval(_autoSyncTimer);_autoSyncTimer=null;}
     if(_sheetPushUnsub){_sheetPushUnsub();_sheetPushUnsub=null;}
