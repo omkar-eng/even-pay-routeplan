@@ -339,6 +339,7 @@ async function initFirestore(){
       if(d.id==='route_assignments')_cache.route_assignments=d.data()||{};
       if(d.id==='tl_achieved')_cache.tl_achieved=d.data()||{};
       if(d.id==='sync_settings')_cache.sync_settings=d.data()||{};
+      if(d.id==='metabase_settings')_cache.metabase_settings=d.data()||{};
       if(d.id==='payment_rows')_cache.payment_rows=(d.data()?.rows||[]).map(r=>r.is?{...r,is:matchISName(r.is)}:r);
       if(d.id==='pending_payments')_pendingPayments=d.data()?.rows||[];
       if(d.id==='monthly_reset')_cache.monthly_reset=d.data()||{};
@@ -568,6 +569,45 @@ function buildRMPayments(payByRM, targetRMNames){
     }
   }
   return{rmPayments,rmDisplayName};
+}
+
+async function fetchMetabaseLeads(){
+  const cfg=_cache.metabase_settings||{};
+  if(!cfg.apiKey)return null;
+  const BASE='https://metabase.0e1.io';
+  const dashId=cfg.dashboardId||529;
+  const h={'X-API-KEY':cfg.apiKey,'Content-Type':'application/json'};
+  try{
+    const dash=await fetch(`${BASE}/api/dashboard/${dashId}`,{headers:h}).then(r=>r.json());
+    if(dash.error||dash['error-code'])throw new Error(dash.error||'Auth failed');
+    const dashcards=dash.dashcards||dash.ordered_cards||[];
+    const TARGET_COLS=['RM','Clinic','Status','CAM','City','Avg leads/day','GL%','Trend','Weeks','Total leads'];
+    for(const dc of dashcards){
+      const cardId=dc.card_id||(dc.card?.id);
+      if(!cardId)continue;
+      try{
+        const result=await fetch(`${BASE}/api/card/${cardId}/query`,{
+          method:'POST',headers:h,
+          body:JSON.stringify({parameters:[]})
+        }).then(r=>r.json());
+        const cols=(result.data?.cols||[]).map(c=>(c.display_name||c.name||'').trim());
+        const hasRM=cols.some(c=>c==='RM');
+        const hasClinic=cols.some(c=>c==='Clinic');
+        if(!hasRM||!hasClinic)continue;
+        const rows=(result.data?.rows||[]).map(row=>{
+          const obj={};
+          cols.forEach((c,i)=>{obj[c]=row[i]??'';});
+          return obj;
+        });
+        return rows;
+      }catch(ce){}
+    }
+    return null;
+  }catch(e){
+    console.warn('Metabase fetch failed:',e.message);
+    _cache.metabase_settings={...(cfg),lastError:e.message};
+    return null;
+  }
 }
 
 function buildLeadsMap(rows){
@@ -920,7 +960,10 @@ async function syncFromGoogleSheet({silent=false}={}){
       db.collection('config').doc('monthly_targets').set(_cache.monthly_targets).catch(()=>{}),
     ]);
     mergePendingIntoPaymentRows();
-    if(jLeads?.status==='ok'){const lr=jLeads.data?.rows||[];_cache.leads_data=lr;buildLeadsMap(lr);}
+    // Lead data: Metabase API takes priority; fall back to GAS ?tab=leads
+    const mbLeads=await fetchMetabaseLeads();
+    if(mbLeads&&mbLeads.length>0){_cache.leads_data=mbLeads;buildLeadsMap(mbLeads);}
+    else if(jLeads?.status==='ok'){const lr=jLeads.data?.rows||[];_cache.leads_data=lr;buildLeadsMap(lr);}
     if(silent){
       applyStoreToRMs();
       window.dispatchEvent(new Event('rmDataUpdated'));
@@ -4503,6 +4546,9 @@ function AdminPanel(){
   const[payDiag,setPayDiag]=useState(null);
   const[lmDiag,setLmDiag]=useState(null);
   const[resetMsg,setResetMsg]=useState('');
+  const[mbApiKey,setMbApiKey]=useState(_cache.metabase_settings?.apiKey||'');
+  const[mbDashId,setMbDashId]=useState(String(_cache.metabase_settings?.dashboardId||529));
+  const[mbMsg,setMbMsg]=useState('');
   const[bulkOpen,setBulkOpen]=useState(false);
   const[bulkText,setBulkText]=useState('');
   const[bulkRows,setBulkRows]=useState(null);
@@ -5320,6 +5366,62 @@ function AdminPanel(){
               </button>
               {resetMsg&&<span style={{fontSize:13,color:resetMsg.includes('✅')?B.green:B.muted,fontWeight:600}}>{resetMsg}</span>}
             </div>
+          </Card>
+
+          <Card style={{borderLeft:'4px solid #7C3AED',marginTop:16}}>
+            <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:4}}>
+              <div style={{fontWeight:700,fontSize:16,color:'#7C3AED'}}>Metabase Integration</div>
+              {_cache.metabase_settings?.apiKey&&<span style={{background:'#EDE9FE',color:'#7C3AED',fontSize:10,fontWeight:700,padding:'2px 8px',borderRadius:10}}>Connected</span>}
+            </div>
+            <div style={{fontSize:13,color:B.muted,marginBottom:14}}>Pulls live lead data (clinic stats, GL%, trend) directly from Metabase on every sync.</div>
+            <div style={{marginBottom:12}}>
+              <div style={{fontWeight:600,fontSize:12,color:B.navy,marginBottom:5}}>API Key</div>
+              <input type="password" value={mbApiKey} onChange={e=>setMbApiKey(e.target.value)}
+                placeholder="Paste your Metabase API key here"
+                style={{width:'100%',padding:'9px 12px',border:`1.5px solid ${B.line}`,borderRadius:8,fontSize:13,outline:'none',boxSizing:'border-box',fontFamily:'monospace'}}/>
+            </div>
+            <div style={{marginBottom:14}}>
+              <div style={{fontWeight:600,fontSize:12,color:B.navy,marginBottom:5}}>Dashboard ID</div>
+              <input type="text" value={mbDashId} onChange={e=>setMbDashId(e.target.value)}
+                placeholder="529"
+                style={{width:120,padding:'9px 12px',border:`1.5px solid ${B.line}`,borderRadius:8,fontSize:13,outline:'none'}}/>
+              <div style={{fontSize:11,color:B.muted,marginTop:4}}>From the Metabase dashboard URL — e.g. /dashboard/<strong>529</strong>-field-ops</div>
+            </div>
+            <div style={{display:'flex',gap:10,alignItems:'center',flexWrap:'wrap'}}>
+              <button onClick={async()=>{
+                if(!mbApiKey.trim()){setMbMsg('Enter an API key first.');return;}
+                setMbMsg('Saving…');
+                const s={apiKey:mbApiKey.trim(),dashboardId:Number(mbDashId)||529};
+                _cache.metabase_settings=s;
+                await db.collection('config').doc('metabase_settings').set(s).catch(()=>{});
+                setMbMsg('✅ Saved. Will take effect on next sync.');
+                setTimeout(()=>setMbMsg(''),4000);
+              }} style={{padding:'9px 20px',background:'#7C3AED',color:'#fff',border:'none',borderRadius:10,fontSize:13,fontWeight:700,cursor:'pointer'}}>
+                Save
+              </button>
+              <button onClick={async()=>{
+                if(!mbApiKey.trim()){setMbMsg('Enter an API key first.');return;}
+                setMbMsg('Testing connection…');
+                const prev=_cache.metabase_settings;
+                _cache.metabase_settings={apiKey:mbApiKey.trim(),dashboardId:Number(mbDashId)||529};
+                const rows=await fetchMetabaseLeads();
+                _cache.metabase_settings=prev;
+                if(rows===null)setMbMsg('❌ Connection failed — check the key or CORS settings on Metabase.');
+                else if(rows.length===0)setMbMsg('⚠️ Connected but no lead rows returned. Check the dashboard has data.');
+                else setMbMsg(`✅ Connected — ${rows.length} rows found.`);
+              }} style={{padding:'9px 18px',background:B.bg,color:B.navy,border:`1.5px solid ${B.line}`,borderRadius:10,fontSize:13,fontWeight:700,cursor:'pointer'}}>
+                Test
+              </button>
+              {_cache.metabase_settings?.apiKey&&<button onClick={async()=>{
+                if(!window.confirm('Remove Metabase connection?'))return;
+                _cache.metabase_settings={};
+                await db.collection('config').doc('metabase_settings').set({}).catch(()=>{});
+                setMbApiKey('');setMbMsg('Disconnected.');
+              }} style={{padding:'9px 14px',background:B.redBg,color:B.red,border:`1px solid ${B.red}`,borderRadius:10,fontSize:12,fontWeight:700,cursor:'pointer'}}>
+                Disconnect
+              </button>}
+            </div>
+            {mbMsg&&<div style={{marginTop:10,fontSize:12,fontWeight:600,color:mbMsg.includes('✅')?B.green:mbMsg.includes('❌')?B.red:B.amber}}>{mbMsg}</div>}
           </Card>
 
           <Card style={{borderLeft:`4px solid ${B.brand}`,marginTop:16}}>
