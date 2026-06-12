@@ -807,6 +807,7 @@ async function syncFromGoogleSheet({silent=false}={}){
           targetMonth:dt.targetMonth||'',
           target:dt.target||0,
           lastMonthTarget:dt.lastMonthTarget||0,
+          manuallySet:dt.manuallySet||false,
         };
       }
     });
@@ -839,7 +840,8 @@ async function syncFromGoogleSheet({silent=false}={}){
       const monthlyTgtVal=hasTabData?(getMonthlyTgt(displayRM,sheetRM)||0):((getMonthlyTgt(displayRM,sheetRM)||parseFloat(r['Target (INR)'])||0)||(ex.target||0));
       const autoDeact=hasTabData&&monthlyTgtVal===0&&!ex.inactive;
       if(autoDeact)autoDeactivated.push(displayRM);
-      const rmTarget=autoDeact?(ex.target||0):monthlyTgtVal;
+      // Manually-set targets (saved via Admin → Targets) survive sheet pulls
+      const rmTarget=ex.manuallySet&&ex.targetMonth===curMK?(ex.target||0):(autoDeact?(ex.target||0):monthlyTgtVal);
       const rmInactive=ex.inactive||autoDeact;
       const rmObj={
         rm:displayRM,tl:sheetTL,city:sheetCity,
@@ -867,6 +869,7 @@ async function syncFromGoogleSheet({silent=false}={}){
         renewalTarget:rmObj.renewalTgt||ex.renewalTarget||0,
         renewalAchieved:rmObj.renewalAchv||ex.renewalAchieved||0,
         lastMonthTarget,
+        manuallySet:ex.manuallySet||false,
         updatedAt:now};
     });
 
@@ -4568,7 +4571,7 @@ function AdminPanel(){
     const curMK=new Date().toISOString().slice(0,7);
     const entry={tl:selectedTL,rm:selectedRM,city:workingRMs.find(r=>r.rm===selectedRM)?.city||'',
       ...Object.fromEntries(Object.entries(form).map(([k,v])=>[k,parseFloat(v)||0])),
-      targetMonth:curMK,
+      targetMonth:curMK,manuallySet:true,
       updated:new Date().toLocaleString('en-IN'),updatedAt:Date.now()};
     const newT={..._cache.targets,[key]:entry};
     await saveStore(newT);setTargets(newT);
