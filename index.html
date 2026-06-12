@@ -59,7 +59,7 @@ const db=firebase.firestore();
 const ROLE_MAP={'omkar@even.in':{role:'admin',name:'Admin (Omkar)',city:'Pune'},'kuldeep.das@even.in':{role:'is_tl',name:'Kuldeep Das'}};
 
 // ── DATA LAYER ─────────────────────────────────────────────────────────────
-let _cache={targets:{},tl_targets:{},admin_state:null,tl_notes:{},route_settings:{},live_leads:{},clinic_statuses:{},route_assignments:{},tl_achieved:{},sync_settings:{},payment_rows:[],monthly_reset:{},monthly_targets:{},leads_data:[],route_plan_data:{live_status:[],needs_action:[],new_onboarded:[],disabled:[],lastFetched:null},loaded:false};
+let _cache={targets:{},tl_targets:{},admin_state:null,tl_notes:{},route_settings:{},live_leads:{},clinic_statuses:{},route_assignments:{},tl_achieved:{},sync_settings:{},payment_rows:[],monthly_reset:{},monthly_targets:{},manual_targets:{},leads_data:[],route_plan_data:{live_status:[],needs_action:[],new_onboarded:[],disabled:[],lastFetched:null},loaded:false};
 let _autoSyncTimer=null;
 let _LEADS_BY_RM={};
 const safeKey=k=>k.replace(/[^a-zA-Z0-9_-]/g,'_');
@@ -344,11 +344,13 @@ async function initFirestore(){
       if(d.id==='pending_payments')_pendingPayments=d.data()?.rows||[];
       if(d.id==='monthly_reset')_cache.monthly_reset=d.data()||{};
       if(d.id==='monthly_targets')_cache.monthly_targets=d.data()||{};
+      if(d.id==='manual_targets')_cache.manual_targets=d.data()||{};
       if(d.id==='route_plan_data'){const rpd=d.data()||{};_cache.route_plan_data={live_status:[],needs_action:[],new_onboarded:[],disabled:[],lastFetched:null,...rpd};}
     });
   }catch(e){console.warn('Firestore:',e);}
   await loadClinicNotes();
   _cache.loaded=true;
+  applyManualTargets();
   applyStoreToRMs();
   mergePendingIntoPaymentRows();
   await checkAndResetMonthlyTargets();
@@ -613,6 +615,22 @@ function buildLeadsMap(rows){
     const ts=e.clinics.map(c=>c.trend.toLowerCase());
     const up=ts.filter(t=>t.includes('up')).length,dn=ts.filter(t=>t.includes('down')).length;
     e.trend=up>dn?'Up':dn>up?'Down':'Stable';
+  });
+}
+
+function applyManualTargets(){
+  // Manual targets live in config/manual_targets — untouched by sheet sync.
+  // After every sync this runs to override whatever the sheet wrote.
+  const curMK=new Date().toISOString().slice(0,7);
+  Object.entries(_cache.manual_targets||{}).forEach(([k,m])=>{
+    if(!m.target||m.targetMonth!==curMK)return;
+    if(_cache.targets[k]){
+      _cache.targets[k].target=m.target;
+      _cache.targets[k].inactive=false;
+      _cache.targets[k].targetMonth=curMK;
+    }
+    const idx=ALL_RMS.findIndex(r=>safeKey(`${r.tl}|${r.rm}`)===k);
+    if(idx>=0){ALL_RMS[idx].target=m.target;ALL_RMS[idx].inactive=false;}
   });
 }
 
@@ -960,6 +978,8 @@ async function syncFromGoogleSheet({silent=false}={}){
       db.collection('config').doc('payment_rows').set({rows:rawPayRows}).catch(()=>{}),
       db.collection('config').doc('monthly_targets').set(_cache.monthly_targets).catch(()=>{}),
     ]);
+    // Apply manual targets AFTER sync — they live in config so the sync never touches them
+    applyManualTargets();
     mergePendingIntoPaymentRows();
     // Lead data: Metabase API takes priority; fall back to GAS ?tab=leads
     const mbLeads=await fetchMetabaseLeads();
@@ -4592,7 +4612,13 @@ function AdminPanel(){
       targetMonth:curMK,manuallySet:true,
       updated:new Date().toLocaleString('en-IN'),updatedAt:Date.now()};
     const newT={..._cache.targets,[key]:entry};
-    await saveStore(newT);setTargets(newT);
+    // Also record in manual_targets — a separate config doc the sync never touches
+    _cache.manual_targets={..._cache.manual_targets,[key]:{target:entry.target,targetMonth:curMK,tl:selectedTL,rm:selectedRM}};
+    await Promise.all([
+      saveStore(newT),
+      db.collection('config').doc('manual_targets').set(_cache.manual_targets).catch(()=>{}),
+    ]);
+    setTargets(newT);
     applyStoreToRMs();window.dispatchEvent(new Event('rmDataUpdated'));
     setSaving('✅ Saved to Firebase!');
     setTimeout(()=>setSaving(''),3000);
