@@ -898,6 +898,21 @@ async function syncFromGoogleSheet({silent=false}={}){
       }
     });
 
+    // Force-restore manually-set targets — runs after the entire s object is built
+    // This is the final authority: manually-set targets always win over sheet values
+    // Uses the original Firestore key from existingLeads to avoid any key-mismatch issue
+    Object.entries(existingLeads).forEach(([k,e])=>{
+      if(!e.manuallySet||!e.target||e.targetMonth!==curMK)return;
+      if(s[k]){
+        s[k].target=e.target;
+        s[k].manuallySet=true;
+        s[k].inactive=false;
+        s[k].targetMonth=curMK;
+        const idx=ALL_RMS.findIndex(r=>safeKey(`${r.tl}|${r.rm}`)===k);
+        if(idx>=0){ALL_RMS[idx].target=e.target;ALL_RMS[idx].inactive=false;}
+      }
+    });
+
     // Recompute aggregates — use payByTL for TL achieved (avoids RM name mismatch)
     ZONE.tls.forEach(tl=>{
       const n=tl.name.toLowerCase();
