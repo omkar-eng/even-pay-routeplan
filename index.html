@@ -4546,6 +4546,11 @@ function AdminPanel(){
   const[clinicSaving,setClinicSaving]=useState('');
 
   useEffect(()=>{setTargets(loadStore());},[]);
+  useEffect(()=>{
+    const refresh=()=>setTargets(loadStore());
+    window.addEventListener('rmDataUpdated',refresh);
+    return()=>window.removeEventListener('rmDataUpdated',refresh);
+  },[]);
 
   const tls=ZONE.tls.map(t=>t.name);
   const rms=selectedTL?workingRMs.filter(r=>r.tl===selectedTL).map(r=>r.rm):[];
@@ -4565,7 +4570,7 @@ function AdminPanel(){
       ...Object.fromEntries(Object.entries(form).map(([k,v])=>[k,parseFloat(v)||0])),
       targetMonth:curMK,
       updated:new Date().toLocaleString('en-IN'),updatedAt:Date.now()};
-    const newT={...targets,[key]:entry};
+    const newT={..._cache.targets,[key]:entry};
     await saveStore(newT);setTargets(newT);
     applyStoreToRMs();window.dispatchEvent(new Event('rmDataUpdated'));
     setSaving('✅ Saved to Firebase!');
