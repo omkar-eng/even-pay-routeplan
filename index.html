@@ -59,7 +59,7 @@ const db=firebase.firestore();
 const ROLE_MAP={'omkar@even.in':{role:'admin',name:'Admin (Omkar)',city:'Pune'},'kuldeep.das@even.in':{role:'is_tl',name:'Kuldeep Das'}};
 
 // ── DATA LAYER ─────────────────────────────────────────────────────────────
-let _cache={targets:{},tl_targets:{},admin_state:null,tl_notes:{},route_settings:{},live_leads:{},clinic_statuses:{},route_assignments:{},tl_achieved:{},sync_settings:{},payment_rows:[],monthly_reset:{},monthly_targets:{},manual_targets:{},leads_data:[],route_plan_data:{live_status:[],needs_action:[],new_onboarded:[],disabled:[],lastFetched:null},loaded:false};
+let _cache={targets:{},tl_targets:{},admin_state:null,tl_notes:{},route_settings:{},live_leads:{},clinic_statuses:{},route_assignments:{},tl_achieved:{},sync_settings:{},payment_rows:[],monthly_reset:{},monthly_targets:{},manual_targets:{},removed_rms:{},leads_data:[],route_plan_data:{live_status:[],needs_action:[],new_onboarded:[],disabled:[],lastFetched:null},loaded:false};
 let _autoSyncTimer=null;
 let _LEADS_BY_RM={};
 const safeKey=k=>k.replace(/[^a-zA-Z0-9_-]/g,'_');
@@ -345,6 +345,7 @@ async function initFirestore(){
       if(d.id==='monthly_reset')_cache.monthly_reset=d.data()||{};
       if(d.id==='monthly_targets')_cache.monthly_targets=d.data()||{};
       if(d.id==='manual_targets')_cache.manual_targets=d.data()||{};
+      if(d.id==='removed_rms')_cache.removed_rms=d.data()||{};
       if(d.id==='route_plan_data'){const rpd=d.data()||{};_cache.route_plan_data={live_status:[],needs_action:[],new_onboarded:[],disabled:[],lastFetched:null,...rpd};}
     });
   }catch(e){console.warn('Firestore:',e);}
@@ -851,6 +852,8 @@ async function syncFromGoogleSheet({silent=false}={}){
         ?payFull.split(' ').map(w=>w.charAt(0).toUpperCase()+w.slice(1)).join(' ')
         :sheetRM;
       const key=safeKey(`${sheetTL}|${displayRM}`);
+      const rawKey=safeKey(`${sheetTL}|${sheetRM}`);
+      if(_cache.removed_rms?.[key]||_cache.removed_rms?.[rawKey])return; // explicitly removed — do not re-add
       const ex=existingLeads[key]||{};
       // lastMonthTarget: explicit tab takes priority; otherwise infer from prior-month Firestore value
       const lmFromTab=getLastMTgt(displayRM,sheetRM);
@@ -4821,6 +4824,11 @@ function AdminPanel(){
     const key=safeKey(`${rm.tl}|${rm.rm}`);
     await db.collection('targets').doc(key).delete().catch(()=>{});
     delete _cache.targets[key];
+    // Record removal so sheet syncs don't re-add this RM
+    _cache.removed_rms={..._cache.removed_rms,[key]:{tl:rm.tl,rm:rm.rm,removedAt:Date.now()}};
+    await db.collection('config').doc('removed_rms').set(_cache.removed_rms).catch(()=>{});
+    const idx=ALL_RMS.findIndex(r=>safeKey(`${r.tl}|${r.rm}`)===key);
+    if(idx>=0)ALL_RMS.splice(idx,1);
     applyStoreToRMs();window.dispatchEvent(new Event('rmDataUpdated'));
     setWorkingRMs(workingRMs.filter((_,i)=>i!==index));
     setRmSaving('✅ RM removed');setTimeout(()=>setRmSaving(''),3000);
