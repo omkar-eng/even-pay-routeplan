@@ -3725,8 +3725,13 @@ function ZoneOverviewPanel(){
   const leadsPct=pct(ZONE.leads.achieved,ZONE.leads.target);
   const dailyPct=0;
 
-  // Top/Bottom 5
-  const rmRanked=[...ALL_RMS].filter(r=>r.target>0).map(r=>{const p=pct(r.achieved,r.target);return {...r,p};}).sort((a,b)=>b.p-a.p);
+  // Top/Bottom 5 — respects the active date range filter
+  const rmRanked=[...ALL_RMS].filter(r=>!r.inactive&&effTgtForRange(r,dateRange)>0).map(r=>{
+    const effAchv=filtData?(filtData.rmPayments[r.rm.toLowerCase()]||0):r.achieved;
+    const effTgt=effTgtForRange(r,dateRange);
+    const p=pct(effAchv,effTgt);
+    return{...r,achieved:effAchv,target:effTgt,p};
+  }).sort((a,b)=>b.p-a.p);
   const top5=rmRanked.slice(0,5);const bot5=rmRanked.slice(-5).reverse();
 
   const filtTotal=filtData?filtData.total:actual;
