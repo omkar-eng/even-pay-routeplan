@@ -3715,6 +3715,9 @@ function ZoneOverviewPanel(){
   const[rmSort,setRmSort]=useState({col:'pct',dir:'desc'});
   const toggleRmSort=col=>setRmSort(s=>s.col===col?{col,dir:s.dir==='desc'?'asc':'desc'}:{col,dir:'desc'});
   const sortArrow=col=>rmSort.col===col?(rmSort.dir==='desc'?'↓':'↑'):'⇅';
+  const[tlSort,setTlSort]=useState({col:'pct',dir:'desc'});
+  const toggleTlSort=col=>setTlSort(s=>s.col===col?{col,dir:s.dir==='desc'?'asc':'desc'}:{col,dir:'desc'});
+  const tlSortArrow=col=>tlSort.col===col?(tlSort.dir==='desc'?'↓':'↑'):'⇅';
   const filtData=(()=>{
     if(dateRange==='All Time')return null;
     if(dateRange==='Single Date'){if(!singleDate)return null;const sd=parseDateInput(singleDate);return computeFilteredPayments(sd,sd);}
@@ -3881,9 +3884,20 @@ function ZoneOverviewPanel(){
         {tab==='tl'&&<>
           <div className="tbl-wrap">
             <table className="dt">
-              <thead><tr><th>TL / ATL</th><th className="num"># RMs</th><th className="num">RMs Filled</th><th className="num">Target (₹)</th><th className="num">Refund (₹)</th><th className="num">Achieved (₹)</th><th className="num">Target %</th><th className="num">Monthly Tgt</th><th className="num">Monthly Achv</th><th className="num">Mthly %</th><th className="num">Daily Tgt</th><th className="num">Daily Achv</th><th className="num">Renewal Tgt</th><th className="num">Renewal Achv</th></tr></thead>
+              <thead><tr><th>TL / ATL</th><th className="num"># RMs</th><th className="num">RMs Filled</th><th className="num">Target (₹)</th><th className="num">Refund (₹)</th>
+                <th className="num" onClick={()=>toggleTlSort('achieved')} style={{cursor:'pointer',userSelect:'none',whiteSpace:'nowrap'}}>Achieved (₹) {tlSortArrow('achieved')}</th>
+                <th className="num" onClick={()=>toggleTlSort('pct')} style={{cursor:'pointer',userSelect:'none',whiteSpace:'nowrap'}}>Target % {tlSortArrow('pct')}</th>
+                <th className="num">Monthly Tgt</th><th className="num">Monthly Achv</th><th className="num">Mthly %</th><th className="num">Daily Tgt</th><th className="num">Daily Achv</th><th className="num">Renewal Tgt</th><th className="num">Renewal Achv</th></tr></thead>
               <tbody>
-                {[...ZONE.tls].sort((a,b)=>pct(b.achieved,b.target)-pct(a.achieved,a.target)).map((t,i)=>{
+                {[...ZONE.tls].sort((a,b)=>{
+                  const aA=filtData?filtData.tlPayments[a.name.toLowerCase()]||0:a.achieved;
+                  const bA=filtData?filtData.tlPayments[b.name.toLowerCase()]||0:b.achieved;
+                  const aET=ALL_RMS.filter(r=>!r.inactive&&r.tl.toLowerCase()===a.name.toLowerCase()).reduce((s,r)=>s+effTgtForRange(r,dateRange),0);
+                  const bET=ALL_RMS.filter(r=>!r.inactive&&r.tl.toLowerCase()===b.name.toLowerCase()).reduce((s,r)=>s+effTgtForRange(r,dateRange),0);
+                  const aV=tlSort.col==='achieved'?aA:pct(aA,aET);
+                  const bV=tlSort.col==='achieved'?bA:pct(bA,bET);
+                  return tlSort.dir==='desc'?bV-aV:aV-bV;
+                }).map((t,i)=>{
                   const tlAchv=filtData?filtData.tlPayments[t.name.toLowerCase()]||0:t.achieved;
                   const tlEffTgt=ALL_RMS.filter(r=>!r.inactive&&r.tl.toLowerCase()===t.name.toLowerCase()).reduce((s,r)=>s+effTgtForRange(r,dateRange),0);
                   const p=pct(tlAchv,tlEffTgt);const mp=pct(t.monthlyAchv,t.monthlyTgt);const dp=pct(t.dailyAchv,t.dailyTgt);
