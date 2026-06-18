@@ -3726,11 +3726,15 @@ function ZoneOverviewPanel(){
   const dailyPct=0;
 
   // Top/Bottom 5 — respects the active date range filter
+  const topBotRows=filtData?filtData.rows:(_cache.payment_rows||[]);
+  const isAmtByRM={};
+  topBotRows.forEach(r=>{if(r.rm&&r.is)(isAmtByRM[r.rm.toLowerCase()]=(isAmtByRM[r.rm.toLowerCase()]||0)+r.amount);});
   const rmRanked=[...ALL_RMS].filter(r=>!r.inactive&&effTgtForRange(r,dateRange)>0).map(r=>{
     const effAchv=filtData?(filtData.rmPayments[r.rm.toLowerCase()]||0):r.achieved;
     const effTgt=effTgtForRange(r,dateRange);
     const p=pct(effAchv,effTgt);
-    return{...r,achieved:effAchv,target:effTgt,p};
+    const isAmt=isAmtByRM[r.rm.toLowerCase()]||0;
+    return{...r,achieved:effAchv,target:effTgt,p,isAmt};
   }).sort((a,b)=>b.p-a.p);
   const top5=rmRanked.slice(0,5);const bot5=rmRanked.slice(-5).reverse();
 
@@ -4051,7 +4055,7 @@ function ZoneOverviewPanel(){
               <div style={{fontSize:14,fontWeight:700,color,marginBottom:10,textTransform:'uppercase',letterSpacing:'.5px'}}>{title}</div>
               <div className="tbl-wrap">
                 <table className="dt">
-                  <thead style={{background:color}}><tr><th>Rank</th><th>RM</th><th>TL</th><th>City</th><th className="num">Target (₹)</th><th className="num">Actual (₹)</th><th className="num">Target %</th></tr></thead>
+                  <thead style={{background:color}}><tr><th>Rank</th><th>RM</th><th>TL</th><th>City</th><th className="num">Target (₹)</th><th className="num">Actual (₹)</th><th className="num">IS Sale (₹)</th><th className="num">Target %</th></tr></thead>
                   <tbody>
                     {rms.map((r,i)=><tr key={i}>
                       <td style={{background:bg,fontWeight:800,color}}>{medal(i)||`#${i+1}`}</td>
@@ -4060,6 +4064,7 @@ function ZoneOverviewPanel(){
                       <td>{r.city}</td>
                       <td className="num">{Number(r.target).toLocaleString('en-IN')}</td>
                       <td className="num">{Number(r.achieved).toLocaleString('en-IN')}</td>
+                      <td className="num">{r.isAmt>0?Number(r.isAmt).toLocaleString('en-IN'):'—'}</td>
                       <td className="num"><span style={{color:pClr(r.p),fontWeight:700}}>{r.p}%</span></td>
                     </tr>)}
                   </tbody>
@@ -4068,7 +4073,7 @@ function ZoneOverviewPanel(){
             </div>
           ))}
           <div style={{gridColumn:'1/-1',display:'flex',justifyContent:'flex-end'}}>
-            <button onClick={()=>downloadCSV(['Group','Rank','RM','TL','City','Target','Actual','Target %'],[...top5.map((r,i)=>['Top',i+1,r.rm,r.tl,r.city,r.target,r.achieved,r.p+'%']),...bot5.map((r,i)=>['Bottom',i+1,r.rm,r.tl,r.city,r.target,r.achieved,r.p+'%'])],'top_bottom_5.csv')}
+            <button onClick={()=>downloadCSV(['Group','Rank','RM','TL','City','Target','Actual','IS Sale','Target %'],[...top5.map((r,i)=>['Top',i+1,r.rm,r.tl,r.city,r.target,r.achieved,r.isAmt||0,r.p+'%']),...bot5.map((r,i)=>['Bottom',i+1,r.rm,r.tl,r.city,r.target,r.achieved,r.isAmt||0,r.p+'%'])],'top_bottom_5.csv')}
               style={{background:B.navy,color:'#fff',border:'none',borderRadius:10,padding:'10px 20px',fontSize:13,fontWeight:700,cursor:'pointer'}}>
               Download Top/Bottom CSV
             </button>
