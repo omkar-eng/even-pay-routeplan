@@ -5416,34 +5416,43 @@ function AdminPanel(){
               <button onClick={()=>{
                 const lmMK=getLastMonthKey();
                 const snap=_cache.monthly_targets?.[lmMK]||{};
-                const sampleRMs=ALL_RMS.slice(0,3).map(r=>`${r.rm}: lmt=₹${r.lastMonthTarget||0} tgt=₹${r.target||0}`);
-                const sampleSnap=Object.entries(snap).slice(0,3).map(([k,v])=>`${k}:₹${v}`).join(' | ')||'(empty)';
+                const rows=ALL_RMS.filter(r=>!r.inactive||(r.lastMonthTarget||0)>0).map(r=>{
+                  const k=safeKey(`${r.tl}|${r.rm}`);
+                  const fromSnap=snap[k];
+                  const effective=fromSnap??r.lastMonthTarget??0;
+                  return{rm:r.rm,tl:r.tl,inactive:r.inactive,snapVal:fromSnap,lmt:r.lastMonthTarget||0,effective};
+                }).filter(r=>r.effective>0).sort((a,b)=>b.effective-a.effective);
+                const total=rows.reduce((s,r)=>s+r.effective,0);
                 setLmDiag({
                   ...(window._syncDebug||{}),
                   lmMK,
                   snapCount:Object.keys(snap).length,
-                  snapSample:sampleSnap,
                   rmCount:ALL_RMS.length,
-                  rmSample:sampleRMs.join(' | '),
                   rmWithLmt:ALL_RMS.filter(r=>(r.lastMonthTarget||0)>0).length,
                   monthlyTgtKeys:Object.keys(_cache.monthly_targets||{}).join(', ')||'(none)',
+                  rows,total,
                 });
               }} style={{padding:'6px 14px',background:'#fff3e0',color:'#e65100',border:'1.5px solid #e65100',borderRadius:8,fontSize:12,fontWeight:600,cursor:'pointer',marginTop:8}}>
                 Check Last Month Targets
               </button>
               {lmDiag&&<div style={{marginTop:8,background:'#fff8f0',border:'1.5px solid #e65100',borderRadius:8,padding:'10px 14px',fontSize:12,fontFamily:'monospace'}}>
-                <div style={{fontWeight:700,fontFamily:'sans-serif',marginBottom:6}}>— CURRENT STATE (after page load) —</div>
-                <div><b>monthly_targets keys:</b> {lmDiag.monthlyTgtKeys}</div>
-                <div><b>Snapshot for {lmDiag.lmMK}:</b> {lmDiag.snapCount} entries — {lmDiag.snapSample}</div>
-                <div><b>ALL_RMS count:</b> {lmDiag.rmCount} · <b>with lastMonthTarget&gt;0:</b> {lmDiag.rmWithLmt}</div>
-                <div style={{marginTop:4,wordBreak:'break-all'}}><b>Sample RMs:</b> {lmDiag.rmSample}</div>
-                {window._syncDebug?.lmTab&&<>
-                  <div style={{fontWeight:700,fontFamily:'sans-serif',marginTop:8,marginBottom:4}}>— LAST SYNC DATA —</div>
-                  <div><b>Tab fetched:</b> {lmDiag.lmTab} · <b>Status:</b> {lmDiag.lmStatus}</div>
-                  <div><b>Rows returned:</b> {lmDiag.lmRowCount} · <b>Targets matched:</b> {lmDiag.lmMapCount}</div>
-                  <div style={{wordBreak:'break-all'}}><b>First row:</b> {lmDiag.lmFirstRow}</div>
-                </>}
-                {(lmDiag.snapCount===0||lmDiag.rmWithLmt===0)&&<div style={{color:'#c62828',marginTop:6,fontFamily:'sans-serif',fontWeight:600}}>Screenshot this and share.</div>}
+                <div style={{fontWeight:700,fontFamily:'sans-serif',marginBottom:6}}>Last Month Targets Breakdown ({lmDiag.lmMK})</div>
+                <div style={{marginBottom:6}}><b>Snapshot entries:</b> {lmDiag.snapCount} &nbsp;|&nbsp; <b>RMs with lastMonthTarget&gt;0:</b> {lmDiag.rmWithLmt} &nbsp;|&nbsp; <b>Keys in cache:</b> {lmDiag.monthlyTgtKeys}</div>
+                <div style={{marginBottom:8,fontWeight:700,color:'#c62828'}}>Computed total: ₹{(lmDiag.total||0).toLocaleString('en-IN')}</div>
+                <div style={{overflowY:'auto',maxHeight:260}}>
+                  <table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}>
+                    <thead><tr style={{background:'#ffe0b2'}}><th style={{padding:'4px 8px',textAlign:'left'}}>RM</th><th style={{padding:'4px 8px',textAlign:'left'}}>TL</th><th style={{padding:'4px 8px',textAlign:'right'}}>Snapshot</th><th style={{padding:'4px 8px',textAlign:'right'}}>lastMonthTgt</th><th style={{padding:'4px 8px',textAlign:'right',fontWeight:800}}>Used</th></tr></thead>
+                    <tbody>
+                      {(lmDiag.rows||[]).map((r,i)=><tr key={i} style={{background:i%2===0?'#fff8f0':'#fff'}}>
+                        <td style={{padding:'3px 8px'}}>{r.rm}{r.inactive?' (inactive)':''}</td>
+                        <td style={{padding:'3px 8px'}}>{r.tl}</td>
+                        <td style={{padding:'3px 8px',textAlign:'right'}}>{r.snapVal!=null?`₹${Number(r.snapVal).toLocaleString('en-IN')}`:'—'}</td>
+                        <td style={{padding:'3px 8px',textAlign:'right'}}>{r.lmt>0?`₹${Number(r.lmt).toLocaleString('en-IN')}`:'—'}</td>
+                        <td style={{padding:'3px 8px',textAlign:'right',fontWeight:700}}>₹{Number(r.effective).toLocaleString('en-IN')}</td>
+                      </tr>)}
+                    </tbody>
+                  </table>
+                </div>
               </div>}
             </div>
           </Card>
