@@ -1859,7 +1859,7 @@ function TLView({user,onLogout}){
   const[customTo,setCustomTo]=useState('');
   const[singleDate,setSingleDate]=useState('');
   const isMobile=useIsMobile();
-  const myRMs=ALL_RMS.filter(r=>r.tl===user.name&&(dateRange==='Last Month'?(r.lastMonthTarget>0||!r.inactive):!r.inactive));
+  const myRMs=ALL_RMS.filter(r=>r.tl===user.name&&(!r.inactive));
   const tgt=myRMs.reduce((s,r)=>s+effTgtForRange(r,dateRange),0);
   const filtData=(()=>{
     if(dateRange==='All Time')return null;
@@ -3068,7 +3068,7 @@ function AllTeamsPanel(){
     const r=getDateRangeFromLabel(dateRange);return r?computeFilteredPayments(r.from,r.to):null;
   })();
   const tls=ZONE.tls.filter(t=>cityF==='All'||t.city===cityF);
-  const totTarget=ALL_RMS.filter(r=>(dateRange==='Last Month'?(r.lastMonthTarget>0||!r.inactive):!r.inactive)&&(cityF==='All'||r.city===cityF)).reduce((s,r)=>s+effTgtForRange(r,dateRange),0);
+  const totTarget=ALL_RMS.filter(r=>(!r.inactive)&&(cityF==='All'||r.city===cityF)).reduce((s,r)=>s+effTgtForRange(r,dateRange),0);
   const totAchv=filtData?tls.reduce((s,t)=>s+(filtData.tlPayments[t.name.toLowerCase()]||0),0):tls.reduce((s,t)=>s+t.achieved,0);
   const totRMs=tls.reduce((s,t)=>s+t.rms,0);
   const totMthlyTgt=tls.reduce((s,t)=>s+t.monthlyTgt,0);
@@ -3724,7 +3724,7 @@ function ZoneOverviewPanel(){
     if(dateRange==='Custom'){if(!customFrom||!customTo)return null;return computeFilteredPayments(parseDateInput(customFrom),parseDateInput(customTo));}
     const r=getDateRangeFromLabel(dateRange);return r?computeFilteredPayments(r.from,r.to):null;
   })();
-  const effZoneTgt=ALL_RMS.filter(r=>dateRange==='Last Month'?(r.lastMonthTarget>0||!r.inactive):!r.inactive).reduce((s,r)=>s+effTgtForRange(r,dateRange),0);
+  const effZoneTgt=ALL_RMS.filter(r=>!r.inactive).reduce((s,r)=>s+effTgtForRange(r,dateRange),0);
   const actual=ZONE.achieved-ZONE.refund;const zp=pct(actual,effZoneTgt);
   const totalRMs=ZONE.cities.reduce((s,c)=>s+c.rms,0);
   const filledRMs=ZONE.cities.reduce((s,c)=>s+c.filledRMs,0);
@@ -3795,7 +3795,7 @@ function ZoneOverviewPanel(){
           {ZONE.cities.map((c,i)=>{
             const cityTLs=ZONE.tls.filter(t=>t.city===c.name);
             const cityAchv=filtData?cityTLs.reduce((s,t)=>s+(filtData.tlPayments[t.name.toLowerCase()]||0),0):c.achieved;
-            const cityEffTgt=ALL_RMS.filter(r=>(dateRange==='Last Month'?(r.lastMonthTarget>0||!r.inactive):!r.inactive)&&r.city===c.name).reduce((s,r)=>s+effTgtForRange(r,dateRange),0);
+            const cityEffTgt=ALL_RMS.filter(r=>(!r.inactive)&&r.city===c.name).reduce((s,r)=>s+effTgtForRange(r,dateRange),0);
             const p=pct(cityAchv,cityEffTgt);
             return <Card key={i} style={{marginBottom:10}}>
               <div style={{display:'flex',justifyContent:'space-between',marginBottom:8}}>
@@ -3810,13 +3810,13 @@ function ZoneOverviewPanel(){
           })}
           <STitle mt={16}>TL Performance</STitle>
           {[...ZONE.tls].sort((a,b)=>{
-            const tlEffA=ALL_RMS.filter(r=>(dateRange==='Last Month'?(r.lastMonthTarget>0||!r.inactive):!r.inactive)&&r.tl.toLowerCase()===a.name.toLowerCase()).reduce((s,r)=>s+effTgtForRange(r,dateRange),0);
-            const tlEffB=ALL_RMS.filter(r=>(dateRange==='Last Month'?(r.lastMonthTarget>0||!r.inactive):!r.inactive)&&r.tl.toLowerCase()===b.name.toLowerCase()).reduce((s,r)=>s+effTgtForRange(r,dateRange),0);
+            const tlEffA=ALL_RMS.filter(r=>(!r.inactive)&&r.tl.toLowerCase()===a.name.toLowerCase()).reduce((s,r)=>s+effTgtForRange(r,dateRange),0);
+            const tlEffB=ALL_RMS.filter(r=>(!r.inactive)&&r.tl.toLowerCase()===b.name.toLowerCase()).reduce((s,r)=>s+effTgtForRange(r,dateRange),0);
             const pa=pct(filtData?filtData.tlPayments[a.name.toLowerCase()]||0:a.achieved,tlEffA);
             const pb=pct(filtData?filtData.tlPayments[b.name.toLowerCase()]||0:b.achieved,tlEffB);
             return pb-pa;
           }).map((t,i)=>{
-            const tlEffTgt=ALL_RMS.filter(r=>(dateRange==='Last Month'?(r.lastMonthTarget>0||!r.inactive):!r.inactive)&&r.tl.toLowerCase()===t.name.toLowerCase()).reduce((s,r)=>s+effTgtForRange(r,dateRange),0);
+            const tlEffTgt=ALL_RMS.filter(r=>(!r.inactive)&&r.tl.toLowerCase()===t.name.toLowerCase()).reduce((s,r)=>s+effTgtForRange(r,dateRange),0);
             const tlAchv=filtData?filtData.tlPayments[t.name.toLowerCase()]||0:t.achieved;
             const p=pct(tlAchv,tlEffTgt);
             return <Card key={i} style={{marginBottom:8,borderLeft:`4px solid ${pClr(p)}`}}>
@@ -3953,7 +3953,7 @@ function ZoneOverviewPanel(){
                 {ZONE.cities.map((c,i)=>{
                   const cityTLs=ZONE.tls.filter(t=>t.city===c.name);
                   const cityAchv=filtData?cityTLs.reduce((s,t)=>s+(filtData.tlPayments[t.name.toLowerCase()]||0),0):c.achieved;
-                  const cityEffTgt=ALL_RMS.filter(r=>(dateRange==='Last Month'?(r.lastMonthTarget>0||!r.inactive):!r.inactive)&&r.city===c.name).reduce((s,r)=>s+effTgtForRange(r,dateRange),0);
+                  const cityEffTgt=ALL_RMS.filter(r=>(!r.inactive)&&r.city===c.name).reduce((s,r)=>s+effTgtForRange(r,dateRange),0);
                   const p=pct(cityAchv,cityEffTgt);
                   const mTgt=cityTLs.reduce((s,t)=>s+t.monthlyTgt,0);const mAchv=cityTLs.reduce((s,t)=>s+t.monthlyAchv,0);const mp=pct(mAchv,mTgt);
                   return <tr key={i}>
